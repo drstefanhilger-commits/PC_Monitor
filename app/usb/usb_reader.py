@@ -1,66 +1,79 @@
 import threading
-import serial
-import struct
-
+import logging
+import time
+from .sds_parser import SDSParser
 
 class USBReader(threading.Thread):
-    def __init__(self, port, baud, model):
+    def __init__(self, ser, model):
         super().__init__(daemon=True)
-        self.port = port
-        self.baud = baud
+        self.ser = ser
         self.model = model
         self.running = True
-        self.ser = None
+        self.parser = SDSParser()
 
     def stop(self):
         self.running = False
-        if self.ser:
-            try:
-                self.ser.close()
-            except:
-                pass
+        try: self.ser.cancel_read()
+        except: pass
+        try: self.ser.close()
+        except: pass
+
+    @staticmethod
+    def expected_length_for_msg_id(msg_id):
+        if msg_id == 1: return 20     # DETECT
+        if msg_id == 2: return 532    # READ
+        if msg_id == 3: return 12     # MODE
+        return None
 
     def run(self):
-        # Port EINMAL öffnen
-        self.ser = serial.Serial(self.port, self.baud, timeout=0.1)
-
         while self.running:
             try:
-                header = self.ser.read(8)
-            except:
+                chunk = self.ser.read(1024)
+            except Exception as e:
+                logging.error(f"USBReader: read error: {e}")
+                time.sleep(0.01)
                 continue
 
-            if len(header) != 8:
+            if not chunk:
+                time.sleep(0.001)
                 continue
 
-            magic, msg_id, length = struct.unpack("<IB3s", header)
-            payload_len = length[2]
+            self.parser.feed(chunk)
 
-            try:
-                payload = self.ser.read(payload_len)
-                crc = self.ser.read(4)
-            except:
-                continue
+            while self.running:
+                item = self.parser.next_item()
+                if item is None:
+                    break
 
-            frame = header + payload + crc
+                kind = item[0]
 
-            if msg_id == 1:
-                self.model.detect_queue.put((msg_id, frame))
-            elif msg_id == 2:
-                self.model.read_queue.put((msg_id, frame))
+                if kind == "error":
+                    raw_bytes, reason = item[1], item[2]
+                    self.model.inspect_queue.put(("error", raw_bytes, reason))
+                    continue
 
-        try:
-            self.ser.close()
-        except:
-            pass
+                if kind == "frame":
+                    msg_id, frame = item[1], item[2]
 
-    def send_mode(self, mode_id: int):
-        if not self.ser:
-            return
+                    if len(frame) == USBReader.expected_length_for_msg_id(msg_id):
+                        self.model.update_raw_frame(frame)
 
-        packet = self.model.build_mode_message(mode_id)
+                    self.model.update_raw_dump(frame)
 
-        try:
-            self.ser.write(packet)
-        except:
-            pass
+                    if msg_id == 1:
+                        self.model.detect_queue.put((msg_id, frame))
+                        self.model.inspect_queue.put(("frame", frame, "DETECT"))
+
+                    elif msg_id == 2:
+                        self.model.read_queue.put((msg_id, frame))
+                        self.model.inspect_queue.put(("frame", frame, "READ"))
+
+                    elif msg_id == 3:
+                        self.model.inspect_queue.put(("frame", frame, "MODE"))
+
+                    else:
+                        self.model.inspect_queue.put(
+                            ("unknown_msg_id", frame, f"Unknown msg_id={msg_id}")
+                        )
+
+            time.sleep(0.001)

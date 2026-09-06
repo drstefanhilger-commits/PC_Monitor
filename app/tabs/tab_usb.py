@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLab
 from app.model.SDSUSBModel import SDSMode
 import serial.tools.list_ports
 
-from app.usb.usb_reader import USBReader
+from app.usb.usb_port_manager import USBPortManager
 
 
 class TabUSB(QWidget):
@@ -11,7 +11,7 @@ class TabUSB(QWidget):
 
         self.main_window = main_window
         self.model = main_window.model
-        self.reader = None
+        self.manager = USBPortManager()  # Singleton-Owner für den COM-Port
 
         layout = QVBoxLayout(self)
 
@@ -91,16 +91,20 @@ class TabUSB(QWidget):
             return
 
         self.model.set_port(port)
-        self.reader = USBReader(port, 115200, self.model)
-        self.reader.start()
-
         self.model.set_connected(True)
-        self.status_label.setText(f"USB: connected to {port}")
+
+        try:
+            self.manager.open(port, 115200, self.model)
+            self.status_label.setText(f"USB: connected to {port}")
+        except Exception as e:
+            self.model.set_connected(False)
+            self.status_label.setText(f"USB: connect failed: {e}")
 
     def disconnect_usb(self):
-        if self.reader:
-            self.reader.stop()
-            self.reader = None
+        try:
+            self.manager.close()
+        except Exception:
+            pass
 
         self.model.set_connected(False)
         self.status_label.setText("USB: disconnected")
@@ -115,5 +119,7 @@ class TabUSB(QWidget):
         self.model.set_mode(mode)
         self.mode_label.setText(f"Mode: {mode.name}")
 
-        if self.reader:
-            self.reader.send_mode(mode.value)
+        try:
+            self.manager.send_mode(mode.value)
+        except Exception:
+            self.status_label.setText("USB: send_mode failed")

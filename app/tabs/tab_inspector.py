@@ -1,20 +1,31 @@
 from collections import deque
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextEdit
 from PyQt6.QtGui import QColor, QTextCursor
-
+from app.model.SDSUSBModel import SDSUSBModel
 
 class TabInspector(QWidget):
-    def __init__(self, parent=None, max_entries=10):
+    """
+    Inspector:
+    - Statistik über alle empfangenen Frames (OK/ERROR)
+    - Ringbuffer für Fehlerframes
+    """
+
+    def __init__(self, model, parent=None, max_errors=50):
         super().__init__(parent)
+        self.model = model
 
-        # Ringbuffer für die letzten N Messages
-        self.buffer = deque(maxlen=max_entries)
 
-        # Counter für Message-IDs
-        self.msg_counter = {
-            1: 0,
-            2: 0
+        # Statistik
+        self.stats = {
+            "detect_ok": 0,
+            "detect_err": 0,
+            "read_ok": 0,
+            "read_err": 0,
+            "unknown": 0
         }
+
+        # Fehler-Ringbuffer
+        self.error_buffer = deque(maxlen=max_errors)
 
         layout = QVBoxLayout(self)
         self.text = QTextEdit()
@@ -22,20 +33,38 @@ class TabInspector(QWidget):
         layout.addWidget(self.text)
 
     # ------------------------------------------------------------
-    # Eintrag hinzufügen (Ringbuffer)
+    # Gültige Frames (nur Statistik)
     # ------------------------------------------------------------
-    def add_entry(self, msg_id: int, length: int):
-        # Counter aktualisieren
-        if msg_id in self.msg_counter:
-            self.msg_counter[msg_id] += 1
+    def add_valid_frame(self, msg_id: int):
+        if msg_id == 1:
+            self.stats["detect_ok"] += 1
+        elif msg_id == 2:
+            self.stats["read_ok"] += 1
+        else:
+            self.stats["unknown"] += 1
 
-        # Kompakte Darstellung
-        entry = f"ID={msg_id} len={length}"
+        self._update_display()
 
-        # Ringbuffer aktualisieren
-        self.buffer.append((msg_id, entry))
+    # ------------------------------------------------------------
+    # Fehlerhafte Frames (Statistik + Ringbuffer)
+    # ------------------------------------------------------------
+    def add_error_frame(self, msg_id: int, raw: bytes, reason: str):
+        if msg_id == 1:
+            self.stats["detect_err"] += 1
+        elif msg_id == 2:
+            self.stats["read_err"] += 1
+        else:
+            self.stats["unknown"] += 1
 
-        # GUI aktualisieren
+        entry = {
+            "msg_id": msg_id,
+            "reason": reason,
+            "raw": raw,
+            "hex": raw.hex(" ").upper(),
+            "len": len(raw)
+        }
+
+        self.error_buffer.append(entry)
         self._update_display()
 
     # ------------------------------------------------------------
@@ -43,30 +72,40 @@ class TabInspector(QWidget):
     # ------------------------------------------------------------
     def _update_display(self):
         self.text.clear()
+        cursor = self.text.textCursor()
 
-        # Summen anzeigen
-        summary = (
-            f"SUM ID=1: {self.msg_counter[1]}\n"
-            f"SUM ID=2: {self.msg_counter[2]}\n"
-            "-----------------------------\n"
+        # Statistik
+        stats_text = (
+            "=== SDS Inspector Statistik ===\n\n"
+            f"DETECT OK:   {self.stats['detect_ok']}\n"
+            f"DETECT ERR:  {self.stats['detect_err']}\n"
+            f"READ OK:     {self.stats['read_ok']}\n"
+            f"READ ERR:    {self.stats['read_err']}\n"
+            f"UNKNOWN:     {self.stats['unknown']}\n"
+            "\n=== Fehler-Ringbuffer ===\n\n"
         )
 
-        self.text.setPlainText(summary)
-
-        # Cursor ans Ende setzen
-        cursor = self.text.textCursor()
+        self.text.setPlainText(stats_text)
         cursor.movePosition(QTextCursor.MoveOperation.End)
 
-        # Letzte N Messages farbig darstellen
-        for msg_id, entry in self.buffer:
-            if msg_id == 1:
-                color = QColor("green")
-            elif msg_id == 2:
-                color = QColor("blue")
-            else:
-                color = QColor("black")
+        # Fehler anzeigen
+        for entry in reversed(self.error_buffer):
+            color = QColor("red")
+            self._append_colored_line(
+                f"[ERROR] msg_id={entry['msg_id']} len={entry['len']} reason={entry['reason']}",
+                color
+            )
+            self._append_colored_line(entry["hex"], QColor("gray"))
+            self._append_colored_line("", QColor("black"))
 
-            self._append_colored_line(entry, color)
+        # ------------------------------------------------------------
+        # RAW-DUMP DES LETZTEN FRAMES (NEU)
+        # ------------------------------------------------------------
+        raw = self.model.last_raw_dump
+        if raw is not None:
+            self._append_colored_line("\n=== RAW FRAME ===", QColor("blue"))
+            hex_dump = raw.hex(" ").upper()
+            self._append_colored_line(hex_dump, QColor("black"))
 
     # ------------------------------------------------------------
     # Hilfsfunktion: farbige Zeile anhängen
