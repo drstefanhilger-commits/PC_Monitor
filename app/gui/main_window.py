@@ -1,102 +1,128 @@
-# main_window.py
-
-import sys
-import logging
-
-from PyQt6.QtWidgets import (
-    QApplication,
-    QMainWindow,
-    QTabWidget,
-)
+from PyQt6.QtWidgets import QMainWindow, QTabWidget, QVBoxLayout, QWidget
 from PyQt6.QtCore import QTimer
 
-from .model import SDSUSBModel
-from .tabs.tab_detect import TabDetect
-from .tabs.tab_read import TabRead
-from .tabs.tab_inspector import TabInspector
-
-# Falls du pyserial nutzt:
-# import serial
-# from .usb.usb_reader import USBReader
+from app.model.SDSUSBModel import SDSUSBModel
+from app.tabs.tab_detect import TabDetect
+from app.tabs.tab_read import TabRead
+from app.tabs.tab_inspector import TabInspector
+from app.tabs.tab_usb import TabUSB
 
 
 class MainWindow(QMainWindow):
+    """
+    Hauptfenster:
+    - Hält das SDSUSBModel
+    - Besitzt Tabs (USB, Detect, Read, Inspector)
+    - Pollt Queues deterministisch
+    """
+
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("USB Monitor (SDS)")
+        self.setWindowTitle("SDS USB Monitor Version 1.00")
 
-        # Zentrales Modell
+        # ------------------------------------------------------------
+        # Model
+        # ------------------------------------------------------------
         self.model = SDSUSBModel()
 
+        # ------------------------------------------------------------
         # Tabs
-        self.tabs = QTabWidget(self)
-        self.setCentralWidget(self.tabs)
+        # ------------------------------------------------------------
+        tabs = QTabWidget()
 
-        self.detect_tab = TabDetect(self.model, parent=self)
-        self.read_tab = TabRead(self.model, parent=self)
-        self.inspector_tab = TabInspector(self.model, parent=self)
+        # USB-Tab (verwaltet ser, USBReader, USBWriter)
+        self.usb_tab = TabUSB(main_window=self)
+        tabs.addTab(self.usb_tab, "SDS System")
 
-        self.tabs.addTab(self.detect_tab, "Detect")
-        self.tabs.addTab(self.read_tab, "Read")
-        self.tabs.addTab(self.inspector_tab, "Inspector")
+        # Detect-Tab
+        self.detect_tab = TabDetect()
+        tabs.addTab(self.detect_tab, "Detect")
 
-        # USBReader-Thread (hier nur Platzhalter – an deine ser-Logik anpassen)
-        self.usb_reader = None
-        # Beispiel:
-        # ser = serial.Serial("COM3", baudrate=115200, timeout=0.01)
-        # self.usb_reader = USBReader(ser, self.model)
-        # self.usb_reader.start()
+        # Read-Tab
+        self.read_tab = TabRead()
+        tabs.addTab(self.read_tab, "Read")
 
-        # GUI-Update-Timer
-        self.timer = QTimer(self)
-        self.timer.setInterval(50)  # ms
-        self.timer.timeout.connect(self.process_queues)
-        self.timer.start()
+        # Inspector-Tab (bekommt später Reader/Writer via on_usb_connected)
+        self.tab_inspector = TabInspector(self.model)
+        self.model.inspector = self.tab_inspector
+        tabs.addTab(self.tab_inspector, "Inspector")
 
-    def process_queues(self):
-        """
-        Holt deterministisch alle Messages aus den Queues
-        und aktualisiert die Tabs.
-        """
-        # DETECT-Frames
+        # ------------------------------------------------------------
+        # Layout
+        # ------------------------------------------------------------
+        main = QWidget()
+        layout = QVBoxLayout(main)
+        layout.addWidget(tabs)
+        self.setCentralWidget(main)
+
+        # ------------------------------------------------------------
+        # Timer für Queue‑Polling
+        # ------------------------------------------------------------
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.process_queue)
+        self.timer.start(20)   # 50 Hz
+
+    # ------------------------------------------------------------
+    # Callback: USB verbunden → Reader/Writer an Inspector geben
+    # ------------------------------------------------------------
+    def on_usb_connected(self, reader, writer):
+        self.tab_inspector.set_usb(reader, writer)
+
+    # ------------------------------------------------------------
+    # Queue‑Polling
+    # ------------------------------------------------------------
+    def process_queue(self):
+        # ------------------------------------------------------------
+        # DETECT Frames
+        # ------------------------------------------------------------
         while not self.model.detect_queue.empty():
-            msg_id, frame = self.model.detect_queue.get_nowait()
-            self.model.update_frame(msg_id, frame)
-            self.detect_tab.add_frame(msg_id, frame)
+            msg_id, frame = self.model.detect_queue.get()
+            self.detect_tab.update_frame(frame)
+            self.tab_inspector.add_valid_frame(msg_id)
+            self.model.update_frame(msg_id, frame, "DETECT")
 
-        # READ-Frames
+        # ------------------------------------------------------------
+        # READ Frames
+        # ------------------------------------------------------------
         while not self.model.read_queue.empty():
-            msg_id, frame = self.model.read_queue.get_nowait()
-            self.model.update_frame(msg_id, frame)
-            self.read_tab.add_frame(msg_id, frame)
+            msg_id, frame = self.model.read_queue.get()
+            self.read_tab.update_frame(frame)
+            self.tab_inspector.add_valid_frame(msg_id)
+            self.model.update_frame(msg_id, frame, "READ")
 
-        # Inspector-Events (error / frame / unknown_msg_id)
+        # ------------------------------------------------------------
+        # INSPECT Frames
+        # ------------------------------------------------------------
         while not self.model.inspect_queue.empty():
-            kind, raw, reason = self.model.inspect_queue.get_nowait()
-            self.model.update_inspector(kind, raw, reason)
-            self.inspector_tab.add_event(kind, raw, reason)
+            kind, raw, reason = self.model.inspect_queue.get()
 
-        # Raw-Dump-Anzeige aktualisieren
-        self.inspector_tab.update_raw_dump()
+            if kind == "error":
+                self.tab_inspector.add_error_frame(0, raw, reason)
+                self.model.update_inspector(kind, raw, reason)
+                continue
 
+            if kind == "unknown_msg_id":
+                self.tab_inspector.add_error_frame(-1, raw, reason)
+                self.model.update_inspector(kind, raw, reason)
+                continue
+
+            if kind == "frame":
+                self.model.update_inspector(kind, raw, reason)
+                self.tab_inspector.update_inspector()
+                continue
+
+        # ------------------------------------------------------------
+        # Inspector aktualisieren
+        # ------------------------------------------------------------
+        self.tab_inspector.update_inspector()
+
+    # ------------------------------------------------------------
+    # Fenster schließen → USB stoppen
+    # ------------------------------------------------------------
     def closeEvent(self, event):
-        # USBReader sauber stoppen
         try:
-            if self.usb_reader is not None:
-                self.usb_reader.stop()
-        except Exception as e:
-            logging.error(f"MainWindow: error stopping USBReader: {e}")
-        super().closeEvent(event)
-
-
-def main():
-    app = QApplication(sys.argv)
-    win = MainWindow()
-    win.resize(900, 600)
-    win.show()
-    sys.exit(app.exec())
-
-
-if __name__ == "__main__":
-    main()
+            self.usb_tab.disconnect_usb()
+        except Exception:
+            pass
+        event.accept()

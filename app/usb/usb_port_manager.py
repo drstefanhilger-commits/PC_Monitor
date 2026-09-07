@@ -1,81 +1,49 @@
-# usb_port_manager.py
-
-import threading
 import serial
-import logging
-
-from .usb_reader import USBReader
-
-logging.basicConfig(level=logging.INFO)
 
 
 class USBPortManager:
     """
-    Singleton-Owner für den COM-Port.
-    Garantiert: nur EIN Thread öffnet/benutzt den Port.
+    Minimaler COM-Port Manager:
+    - Öffnet und schließt den Serial-Port deterministisch
+    - Keine Threads, keine Reader/Writer
+    - TabUSB erzeugt USBReader/USBWriter selbst
     """
-
-    _instance = None
-    _instance_lock = threading.Lock()
-
-    def __new__(cls, *args, **kwargs):
-        with cls._instance_lock:
-            if cls._instance is None:
-                cls._instance = super().__new__(cls)
-        return cls._instance
 
     def __init__(self):
         self.ser = None
-        self.reader_thread = None
-        self.running = False
-        self.thread_lock = threading.Lock()
 
     # ------------------------------------------------------------
-    # OPEN PORT
+    # COM-Port öffnen
     # ------------------------------------------------------------
-    def open(self, port, baud, model):
-        with self.thread_lock:
-
-            # Falls bereits offen → zuerst schließen
-            if self.reader_thread:
-                self.reader_thread.stop()
-                self.reader_thread.join()
-                self.reader_thread = None
-
-            # COM-Port öffnen
-            self.ser = serial.Serial(port, baud, timeout=0.1)
-
-            # Reader starten
-            self.running = True
-            self.reader_thread = USBReader(self.ser, model)
-            self.reader_thread.start()
-
-    # ------------------------------------------------------------
-    # CLOSE PORT
-    # ------------------------------------------------------------
-    def close(self):
-        with self.thread_lock:
-            self.running = False
-
-            # Reader stoppen
-            if self.reader_thread:
-                self.reader_thread.stop()
-                self.reader_thread.join()
-                self.reader_thread = None
-
-            # Port wird vom Reader geschlossen
-            self.ser = None
-
-    # ------------------------------------------------------------
-    # SEND MODE MESSAGE
-    # ------------------------------------------------------------
-    def send_mode(self, mode_id):
-        if not self.ser:
-            return
-
-        packet = self.reader_thread.model.build_mode_message(mode_id)
+    def open(self, port: str, baudrate: int, model):
+        """
+        Öffnet den COM-Port deterministisch.
+        Wird von TabUSB.connect_usb() aufgerufen.
+        """
+        if self.ser is not None:
+            raise RuntimeError("USBPortManager: Port bereits geöffnet")
 
         try:
-            self.ser.write(packet)
+            self.ser = serial.Serial(port, baudrate, timeout=0.1)
+            model.set_connected(True)
+            model.set_port(port)
+            return self.ser
+
         except Exception as e:
-            logging.error(f"send_mode failed: {e}")
+            self.ser = None
+            model.set_connected(False)
+            raise RuntimeError(f"USBPortManager: Öffnen fehlgeschlagen: {e}")
+
+    # ------------------------------------------------------------
+    # COM-Port schließen
+    # ------------------------------------------------------------
+    def close(self):
+        """
+        Schließt den COM-Port deterministisch.
+        Wird von TabUSB.disconnect_usb() aufgerufen.
+        """
+        try:
+            if self.ser:
+                self.ser.close()
+        finally:
+            self.ser = None

@@ -1,8 +1,10 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, QDial
 from app.model.SDSUSBModel import SDSMode
 import serial.tools.list_ports
+import serial
 
-from app.usb.usb_port_manager import USBPortManager
+from app.usb.usb_reader import USBReader
+from app.usb.usb_writer import USBWriter
 
 
 class TabUSB(QWidget):
@@ -11,7 +13,11 @@ class TabUSB(QWidget):
 
         self.main_window = main_window
         self.model = main_window.model
-        self.manager = USBPortManager()  # Singleton-Owner für den COM-Port
+
+        # USB Objekte
+        self.ser = None
+        self.reader = None
+        self.writer = None
 
         layout = QVBoxLayout(self)
 
@@ -43,7 +49,7 @@ class TabUSB(QWidget):
         conn_layout.addWidget(btn_disconnect)
 
         # ------------------------------------------------------------
-        # DREHSCHALTER (QDial)
+        # MODE SELECTOR (QDial)
         # ------------------------------------------------------------
         mode_layout = QVBoxLayout()
 
@@ -90,19 +96,42 @@ class TabUSB(QWidget):
             self.status_label.setText("USB: no port selected")
             return
 
-        self.model.set_port(port)
-        self.model.set_connected(True)
-
         try:
-            self.manager.open(port, 115200, self.model)
+            # COM-Port öffnen
+            self.ser = serial.Serial(port, 115200, timeout=0.1)
+            self.model.set_port(port)
+            self.model.set_connected(True)
+
+            # Reader/Writer erzeugen (JETZT ist ser gültig)
+            self.reader = USBReader(self.ser, self.model)
+            self.writer = USBWriter(self.ser, self.model)
+
+            # Threads starten
+            self.reader.start()
+            self.writer.start()
+
+            # MainWindow informieren
+            self.main_window.on_usb_connected(self.reader, self.writer)
+
             self.status_label.setText(f"USB: connected to {port}")
+
         except Exception as e:
             self.model.set_connected(False)
             self.status_label.setText(f"USB: connect failed: {e}")
 
     def disconnect_usb(self):
         try:
-            self.manager.close()
+            if self.reader:
+                self.reader.stop()
+                self.reader.wait()
+
+            if self.writer:
+                self.writer.stop()
+                self.writer.wait()
+
+            if self.ser:
+                self.ser.close()
+
         except Exception:
             pass
 
@@ -120,6 +149,9 @@ class TabUSB(QWidget):
         self.mode_label.setText(f"Mode: {mode.name}")
 
         try:
-            self.manager.send_mode(mode.value)
+            if self.writer:
+                self.writer.send_mode(mode.value)
+            else:
+                self.status_label.setText("USB: writer not ready")
         except Exception:
             self.status_label.setText("USB: send_mode failed")
