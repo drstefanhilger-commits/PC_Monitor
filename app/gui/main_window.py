@@ -1,14 +1,18 @@
+import csv
 import time
+from collections import OrderedDict
 
+import numpy as np
 import serial
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QHBoxLayout, QMainWindow, QSplitter, QTabWidget, QWidget
+from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QMainWindow, QSplitter, QTabWidget, QWidget
 
 from app.model.SDSUSBModel import SDSMode, SDSUSBModel
 from app.tabs.tab_calibrate import TabCalibrate
 from app.tabs.tab_detect import TabDetect
 from app.tabs.tab_read import TabRead
-from app.usb.messages import LineAssembler, parse_logger, parse_unit_report
+from app.tracking.tracker import CandidateReport, Tracker, T_END_S
+from app.usb.messages import LineAssembler, parse_detect, parse_logger, parse_unit_report
 from app.usb.usb_reader import USBReader
 from app.usb.usb_writer import USBWriter
 from app.widgets.control_panel import ControlPanel
@@ -44,6 +48,10 @@ class MainWindow(QMainWindow):
         self.writer = None
         self._poll_count = 0
         self._log_lines = LineAssembler()
+        # Tracking-Einheit (Komponente B, FSL9 §8–10)
+        self.tracker = Tracker()
+        self._detects = OrderedDict()          # timestamp_ms -> Detect (Distanz für den Candidate Report)
+        self._last_accept_host = None          # time.monotonic() der letzten Übernahme
 
         # --- Bedienfeld links ------------------------------------------
         self.controls = ControlPanel()
@@ -53,6 +61,8 @@ class MainWindow(QMainWindow):
         self.controls.unit_id_set.connect(self.on_unit_id)
         self.controls.srp_toggled.connect(self.on_srp)
         self.controls.sync_requested.connect(self.send_sync)
+        self.controls.feedback_toggled.connect(self.on_feedback_toggled)
+        self.controls.export_requested.connect(self.on_export)
 
         # --- Tabs, je Betriebsart einer -------------------------------------
         self.tabs = QTabWidget()
@@ -135,6 +145,82 @@ class MainWindow(QMainWindow):
             self.writer.send_srp(on)
         else:
             self.status.log(f"SRP {'ein' if on else 'aus'}; wird beim Verbinden gesendet")
+
+    # ------------------------------------------------------------
+    # Tracking-Einheit
+    # ------------------------------------------------------------
+    DETECT_KEEP = 64
+    LEVEL_DIST_K, LEVEL_DIST_EPS = 100.0, 1e-3     # wie SDS_110 Config (nur falls Detect fehlt)
+
+    def candidate_from(self, r):
+        """Candidate Report aus UnitReport + Detect desselben Frames (gleicher ms-Zeitstempel)."""
+        d = self._detects.pop(r.timestamp_ms, None)
+        dist = d.distance_m if d is not None else self.LEVEL_DIST_K / (r.level + self.LEVEL_DIST_EPS)
+        return CandidateReport(r.time_us / 1e6, r.bearing_deg % 360.0, dist, np.array(r.state_vector()),
+                               r.pairs, r.residual_s, r.unit)
+
+    def track_report(self, r):
+        cand = self.candidate_from(r)
+        was = self.tracker.track
+        was_confirmed = was is not None and was.confirmed
+        dec = self.tracker.process(cand)
+        t = self.tracker.track
+        if dec.accepted:
+            self._last_accept_host = time.monotonic()
+        if was_confirmed and (t is None or t is not was):
+            self._track_ended("neuer Beginn")
+        if t is not None and t.confirmed and not was_confirmed:
+            self.status.log(f"Spur bestätigt bei {cand.azimuth_deg:.0f}°, {cand.distance_m:.0f} m")
+        if dec.accepted and t is not None and t.confirmed and self.writer and self.controls.feedback():
+            p = self.tracker.predicted()
+            self.writer.send_feedback(t.ref_state, p.azimuth_deg, p.distance_m)
+        self.detect_tab.update_track(self.tracker, dec)
+
+    def _track_ended(self, why: str):
+        n = len(self.tracker.finished[-1]) if self.tracker.finished else 0
+        self.status.log(f"Spur beendet ({why}), {n} Punkte")
+        if self.writer and self.controls.feedback():
+            self.writer.send_feedback(None)                 # Board setzt Schwellen und Gewichte zurück
+
+    def check_track_timeout(self):
+        """Ende nach T_END_S ohne übernommenen Report, auch wenn gar keine Reports mehr kommen."""
+        t = self.tracker.track
+        if t is None or self._last_accept_host is None:
+            return
+        if time.monotonic() - self._last_accept_host > T_END_S:
+            confirmed = t.confirmed
+            self.tracker.expire(t.t_last + T_END_S + 1e-3)
+            if confirmed:
+                self._track_ended(f"{T_END_S:.0f} s ohne Report")
+            self.detect_tab.update_track(self.tracker, None)
+
+    def on_feedback_toggled(self, on: bool):
+        if not on and self.writer:
+            self.writer.send_feedback(None)
+        self.status.log(f"Tracking-Feedback {'ein' if on else 'aus'}")
+
+    def export_track(self, path: str) -> int:
+        """Beendete und laufende bestätigte Trajektorien als CSV; Rückgabe: Zahl der Punkte."""
+        tracks = list(self.tracker.finished)
+        if self.tracker.track is not None and self.tracker.track.confirmed:
+            tracks.append(self.tracker.track.trajectory)
+        n = 0
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f, delimiter=";")
+            w.writerow(["spur", "zeit_s", "ost_m", "nord_m", "v_ost_ms", "v_nord_ms",
+                        "azimut_deg", "distanz_m", "geschw_ms", "kurs_deg"])
+            for k, tr in enumerate(tracks, 1):
+                for p in tr:
+                    w.writerow([k, f"{p.time_s:.6f}", f"{p.x:.2f}", f"{p.y:.2f}", f"{p.vx:.2f}", f"{p.vy:.2f}",
+                                f"{p.azimuth_deg:.2f}", f"{p.distance_m:.2f}", f"{p.speed_ms:.2f}", f"{p.course_deg:.1f}"])
+                    n += 1
+        return n
+
+    def on_export(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Trajektorie speichern", "trajektorie.csv", "CSV (*.csv)")
+        if path:
+            n = self.export_track(path)
+            self.status.log(f"{n} Trajektorienpunkte gespeichert: {path}")
 
     def send_sync(self):
         """Sync (Id 7): aktuelle UTC in µs und die eingestellte Temperatur (oder unbekannt)."""
@@ -221,6 +307,7 @@ class MainWindow(QMainWindow):
         """
         deadline = time.monotonic() + self.POLL_BUDGET_S
         self._process_queues(deadline)
+        self.check_track_timeout()
         self._poll_count += 1
         if self._poll_count % self.STATS_EVERY == 0:
             dropped = self.model.take_dropped()
@@ -232,6 +319,10 @@ class MainWindow(QMainWindow):
         while not self.model.detect_queue.empty():
             msg_id, frame = self.model.detect_queue.get()
             self.detect_tab.update_frame(frame)
+            d = parse_detect(frame)
+            self._detects[d.timestamp_ms] = d
+            while len(self._detects) > self.DETECT_KEEP:
+                self._detects.popitem(last=False)
             self.model.stats_total += 1
             self.model.stats_detect += 1
             self.model.update_frame(msg_id, frame, "DETECT")
@@ -253,6 +344,7 @@ class MainWindow(QMainWindow):
                 continue
             self.model.stats_unit += 1
             self.detect_tab.update_unit_report(r)
+            self.track_report(r)
 
         while not self.model.log_queue.empty():
             msg_id, frame = self.model.log_queue.get()

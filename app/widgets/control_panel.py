@@ -27,6 +27,8 @@ class ControlPanel(QWidget):
     unit_id_set = pyqtSignal(int)
     srp_toggled = pyqtSignal(bool)
     sync_requested = pyqtSignal()             # Sync jetzt senden (Knopf oder Temperatur geändert)
+    feedback_toggled = pyqtSignal(bool)       # Tracking-Feedback an das Board (Id 8)
+    export_requested = pyqtSignal()           # Trajektorien als CSV speichern
 
     WIDTH = 230
 
@@ -121,6 +123,19 @@ class ControlPanel(QWidget):
         vy.addLayout(row)
         lay.addWidget(box_sync)
 
+        # --- Tracking (FSL9 §8–10) -------------------------------------------
+        box_trk = QGroupBox("Tracking")
+        vt = QVBoxLayout(box_trk)
+        self.sw_feedback = ToggleSwitch("Feedback aus", "ein", on_color="#00838f")
+        self.sw_feedback.setToolTip("ŝ und Vorhersage nach jeder Übernahme an das Board (Id 8)")
+        self.sw_feedback.setChecked(True, emit=False)
+        self.sw_feedback.toggled.connect(self.feedback_toggled)
+        vt.addWidget(self.sw_feedback)
+        self.btn_export = QPushButton("Trajektorie als CSV …")
+        self.btn_export.clicked.connect(self.export_requested)
+        vt.addWidget(self.btn_export)
+        lay.addWidget(box_trk)
+
         lay.addStretch()
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
@@ -147,6 +162,9 @@ class ControlPanel(QWidget):
 
     def mode(self) -> SDSMode:
         return self.mode_dial.mode()
+
+    def feedback(self) -> bool:
+        return self.sw_feedback.isChecked()
 
     def srp(self) -> bool:
         return self.sw_srp.isChecked()

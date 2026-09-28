@@ -69,6 +69,16 @@ class USBWriter(QThread):
     def send_srp(self, on: bool):
         self.send_packet(6, self.model.build_srp_message(on), f"SRP {'ein' if on else 'aus'}")
 
+    def send_feedback(self, ref_state=None, azimuth_deg=None, distance_m=None):
+        """Feedback der Tracking-Einheit (Id 8); ref_state None = zurücksetzen."""
+        from app.tracking.feedback import build_feedback
+        pkt = build_feedback(ref_state, azimuth_deg, distance_m)
+        name = "Feedback zurücksetzen" if ref_state is None else f"Feedback (Vorhersage {azimuth_deg:.1f}°, {distance_m:.0f} m)"
+        self.model.update_sent(8, pkt)
+        self.write_queue.put(pkt)
+        if ref_state is None:                  # jedes Feedback zu melden wäre bei 31 Reports/s zu viel
+            self.log_signal.emit(f"TX {name}")
+
     def send_sync(self, utc_us: int, temp_c=None):
         t = "unbekannt" if temp_c is None else f"{temp_c:.2f} °C"
         self.send_packet(7, self.model.build_sync_message(utc_us, temp_c), f"Sync ({t})")

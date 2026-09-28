@@ -28,3 +28,10 @@ def message(msg_id: int, payload: bytes, ts=0) -> bytes:
 def read_block(mic=0, block=0, samples=None, ts=5) -> bytes:
     samples = samples or [0] * 128
     return frame(2, struct.pack("<IHH", ts, mic, block) + struct.pack("<128i", *samples))
+
+
+def unit_report(time_us, bearing, bands, probs, unit=0x1234, src=1, residual=2e-5, pairs=27, level=0.5, ts=0):
+    """UnitReport-Nutzlast (Id 5) wie Output_Interface_130 der Firmware (ICD 5.2)."""
+    p = struct.pack("<HQBffBB", unit, time_us, src, bearing, residual, pairs, len(bands))
+    p += struct.pack("<f", level) + bytes(bands) + bytes(int(x * 255) for x in probs)
+    return message(5, p, ts=ts)
