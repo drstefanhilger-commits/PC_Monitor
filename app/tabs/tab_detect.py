@@ -16,7 +16,7 @@ from app.usb.messages import BAND_LO_HZ, BAND_WIDTH_HZ, N_BANDS, UnitReport
 
 RANGES_M = (25, 50, 100, 200, 500, 1000, 2000, 5000)     # Anzeigeradien (automatisch gewählt)
 TRAIL = 60                                               # zuletzt angezeigte Positionen
-TRACK_SHOWN = 10                                         # angezeigte Punkte der Spur (Export: alle)
+TRACK_SHOWN = 50                                         # angezeigte Punkte der Spur (Export: alle)
 HISTORY = 200
 
 
