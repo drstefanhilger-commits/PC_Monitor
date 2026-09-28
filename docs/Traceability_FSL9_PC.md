@@ -16,7 +16,11 @@ Von 25 Anforderungen an den PC-Monitor sind 14 erfüllt, 6 teilweise erfüllt, 4
   - Lokalisation mit mehreren Einheiten (§6, Komponente A),
   - eine laufende Ausgabe der Trajektorie an ein externes System (§9, 162),
   - die Nutzung der Vorhersage im Board für das TDOA-Suchfenster (§10, Firmware A34).
-- **Architekturfrage für §5 und §6:** Die Inter-Unit-GCC-PHAT braucht die Spektren bzw. die Signale mehrerer Einheiten an einem Ort. Der UnitReport überträgt nur Peilung, Residuum, Pegel und die Bänder mit p_b. Vor T7 muss feststehen, ob die Firmware Spektren der selektierten Bins überträgt oder ob die Einheiten ihre TDOA zu einer Master-Einheit bilden.
+- **Architektur für §5 und §6: entschieden am 28.09.2026, „nur TDOA übertragen“.**
+  - Jede Einheit sendet ihre Intra-Unit-Ergebnisse: TDOA der Paare bzw. Peilung, Qualität und µs-Zeit. Spektren und Signale werden nicht übertragen.
+  - **Folge:** Die Inter-Unit-GCC-PHAT (P4) entfällt als bewusste Abweichung von FSL9.
+  - Die Lokalisation mehrerer Einheiten (P5, P6) erfolgt aus den Peilungen und µs-Zeitstempeln der Einheiten, also über Kreuzpeilung und die Zeitdifferenzen gleicher Ereignisse.
+  - Die Bandbreite bleibt klein (≈ 144 B je Frame).
 
 ## Matrix
 
@@ -28,7 +32,7 @@ Code-Referenzen beziehen sich auf `app/`.
 | P1 | §1, A6 | Zeitbezug der Einheiten | UTC, Synchronisation ≤ 10 µs | Sync Id 7 mit UTC in µs beim Verbinden, jede Minute und per Knopf (über USB ~1 ms genau); ≤ 10 µs erst mit GNSS-PPS (HW-Version 2) | `gui/main_window.py send_sync`, `model/SDSUSBModel.py build_sync_message` | Teilweise |
 | P2 | §5, A23 | Temperatur für c | c temperaturkorrigiert | Temperatur als Eingabe im Bedienfeld (−40…+60 °C), gesendet in Id 7; kein Sensor | `widgets/control_panel.py temperature`, `model/SDSUSBModel.py build_sync_message` | Teilweise |
 | P3 | §1, §6 | Positionen der Einheiten | vermessen auf 0,1 m, gespeichert | Standort einer Einheit (WGS84, 1e-7° ≈ 1 cm, Höhe mm) eingeben, speichern, beim Verbinden senden (Id 10), Rückmeldung des Boards (Id 6, Quelle PC/GNSS); Spur als Breite/Länge im CSV. Mehrere Einheiten mit T7 | `geo.py`, `gui/main_window.py on_position`, `widgets/control_panel.py` | Teilweise |
-| P4 | §5, Anspr. 1(e), 10 | Inter-Unit-GCC-PHAT | Korrelation zwischen Einheiten mit gemeinsamer Selektion und Gewichten | nicht vorhanden; die Daten dafür werden nicht übertragen (Architekturfrage) | – | Nicht erfüllt |
+| P4 | §5, Anspr. 1(e), 10 | Inter-Unit-GCC-PHAT | Korrelation zwischen Einheiten mit gemeinsamer Selektion und Gewichten | entfällt nach der Entscheidung „nur TDOA übertragen“ (28.09.2026): keine Spektren zwischen den Einheiten; Ersatz über Peilungen und µs-Zeiten (T7) | – | Nicht erfüllt (bewusste Abweichung) |
 | P5 | §6(a) | Multilateration | N ≥ 3: Hyperbeln \|x − u_i\| − \|x − u_j\| = c·τ_ij, gewichtete LS, Gewicht = Peak-Ratio | nicht vorhanden | – | Nicht erfüllt |
 | P6 | §6(b) | Gemeinsamer Modus | N = 2: eine Hyperbel + zwei Peilungen, gewichtete LS | nicht vorhanden; die Peilungen im UnitReport Id 5 werden nicht gelesen | – | Nicht erfüllt |
 | P7 | §6, FIG. 5 | Referenzpunkt und Azimut | Zentroid der Einheiten, φ ab Nord | Azimut 0° = Nord, im Uhrzeigersinn, Mikrofon 0 = Nord in Firmware und Lageplan (Nord oben, Ost rechts); Referenzpunkt = Array (eine Einheit, gleich dem Zentroid); Nordabgleich der aufgestellten Einheit mit einer Referenzquelle (Tab Calibrate, Id 9, T10); Zentroid mehrerer Einheiten mit T7 | `tabs/tab_detect.py compass_xy`, `calibration.py`, `tabs/tab_calibrate.py`, SDS_110 `Azimuth.hpp` | Erfüllt |
@@ -61,4 +65,4 @@ Die Zeilen P23 und P24 stammen aus der ICD und nicht aus FSL9. Die Zählung in d
 | 2 | P1, P2 | erledigt: Sync Id 7 mit UTC und Temperatur; offen: Temperatursensor, GNSS-PPS (HW-Version 2) | T3 |
 | 3 | P7 | erledigt: Azimut ab Nord im Uhrzeigersinn in Firmware und Plot; Nordabgleich (Id 9) | T5, T10 |
 | 4 | P14–P21 | erledigt: Tracking-Einheit als eigenes Modul, Feedback Id 8 (PC und Firmware); offen: Ausgabe an ein externes System, Vorhersage in der Firmware nutzen (A34) | T8 |
-| 5 | P3–P6, P8, P22 | Mehrere Einheiten und Lokalisation (Komponente A); vorher die Architekturfrage klären | T7 |
+| 5 | P3–P6, P8, P22 | Mehrere Einheiten und Lokalisation (Komponente A) mit „nur TDOA übertragen“: Kreuzpeilung, Zeitdifferenzen aus µs-Zeiten | T7 |

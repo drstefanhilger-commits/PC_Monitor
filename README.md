@@ -56,6 +56,13 @@ python -m app.main
 
 ![Detect](docs/gui_detect.png)
 
+### Rohdaten (Tab Read)
+
+- Das Board sendet im Modus READ die Mikrofonsignale **vor** der Vorverarbeitung (Firmware ab 28.09.2026, ICD 5.3).
+- Der Tab zeigt Pegel, Wellenform und Spektrum des letzten Hops. Außerdem zählt er fehlende Hops über die Hop-Nummer: USB Full Speed schafft nicht alle 96 Nachrichten je Hop.
+- **Aufnahme …** speichert die Rohdaten als WAV (8 Kanäle, 24 Bit, 48 kHz). Fehlende oder unvollständige Hops werden als Stille geschrieben und gezählt.
+- Die Datei lässt sich direkt mit SDS_110 `tools/features/sds_features` auswerten.
+
 ### Nordabgleich (Tab Calibrate)
 
 Die Einheit steht selten genau mit Mikrofon 0 nach Nord. Der Nordabgleich korrigiert die Peilung um einen Offset (Kommando Id 9, ICD 4.4):

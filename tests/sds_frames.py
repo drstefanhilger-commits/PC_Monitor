@@ -25,9 +25,10 @@ def message(msg_id: int, payload: bytes, ts=0) -> bytes:
     return frame(msg_id, struct.pack("<I", ts) + payload.ljust(128, b"\0"))
 
 
-def read_block(mic=0, block=0, samples=None, ts=5) -> bytes:
+def read_block(mic=0, block=0, samples=None, ts=5, hop=0) -> bytes:
+    """Read-Nachricht (Id 2) wie SDS_110 seit 28.09.2026: ts u32, mic u8, block u8, hop u16 (ICD 5.3)."""
     samples = samples or [0] * 128
-    return frame(2, struct.pack("<IHH", ts, mic, block) + struct.pack("<128i", *samples))
+    return frame(2, struct.pack("<IBBH", ts, mic, block, hop) + struct.pack("<128i", *samples))
 
 
 def unit_report(time_us, bearing, bands, probs, unit=0x1234, src=1, residual=2e-5, pairs=27, level=0.5, ts=0):

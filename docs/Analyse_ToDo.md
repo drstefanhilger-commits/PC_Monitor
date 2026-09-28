@@ -241,6 +241,16 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 - **Tests:** `test_position.py` (Eingabe, Bytes, Id 6, Umrechnung gegen Haversine, Hauptfenster, CSV); `test_loopback.py` prüft Id 10 beim Verbinden.
 - **Offen:** relative Positionen mehrerer Einheiten und deren Nutzung in der Lokalisation (T7).
 
+## 3h. Umgesetzt: Rohdaten im Tab Read (SDS_110 Befund 35, 28.09.2026)
+
+- **Firmware:** READ sendet Rohdaten vor 118; im Kopf stehen jetzt micNr u8, blockNr u8 und hopNr u16 (ICD 5.3).
+- **Tab Read:**
+  - liest das neue Kopfformat und erkennt einen neuen Hop an der Hop-Nummer statt am Zeitstempel;
+  - zählt fehlende Hops, auch über den Überlauf 65535 → 0; rückwärts (Board-Neustart) zählt nicht;
+  - zeigt das Spektrum bis 24 kHz.
+- **Aufnahme:** WAV mit 8 Kanälen, 24 Bit, 48 kHz. Fehlende und unvollständige Hops werden als Stille geschrieben (höchstens 31 am Stück) und gezählt. Geprüft: SDS_110 `sds_features` liest die Datei.
+- **Tests:** `test_read_record.py` (Kopf, Lücken, WAV-Inhalt); `test_read_load.py` mit fortlaufenden Hop-Nummern.
+
 ## 4. ToDo-Liste
 
 | Nr. | Prio | Aufgabe | Befunde | Aufwand |
@@ -251,7 +261,7 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 | T4 | erledigt | Den Read-Tab neu bauen: Hop aus 8 × 12 Blöcken zusammensetzen, int32 lesen, Pegel je Mikrofon in dBFS, Wellenform und Spektrum. Anzeige mit höchstens 10 Hz, Queues begrenzen. | P10, P11 | mittel |
 | T5 | erledigt | Azimut-Konvention mit der Firmware festlegen (FSL9 A28: ab Nord). Detect-Plot danach ausrichten, Achsen automatisch skalieren, Verlauf der Ziele. | P8, P9 | klein |
 | T6 | erledigt | Einen USB-Abbruch erkennen: Reader meldet den Abbruch, der Schalter geht auf Off, Fehlermeldung | P16 | klein |
-| T7 | hoch | Mehrere Einheiten: je Einheit ein Port bzw. eine Unit-ID, Positionen konfigurierbar. PC-Teil von 126 und 128 (Multilateration N ≥ 3, gemeinsamer Modus N = 2) und Candidate Report (130). Dafür muss die Firmware Spektren oder TDOA je Einheit liefern (Architektur klären). | P17, P19 | groß |
+| T7 | hoch | Mehrere Einheiten: je Einheit ein Port bzw. eine Unit-ID, Standort (Id 10) je Einheit. **Architektur entschieden (28.09.2026): nur TDOA übertragen**, also Intra-Unit-TDOA/Peilung, Qualität und µs-Zeit je Einheit, keine Spektren. Auf dem PC: Kreuzpeilung und Zeitdifferenzen gleicher Ereignisse, Candidate Report (130). Die Inter-Unit-GCC-PHAT (FSL9 §5) entfällt als Abweichung. Offen: Erweiterung des UnitReport um Paar-TDOA oder Peilungsunsicherheit. | P17, P19 | groß |
 | T8 | erledigt | Tracking-Einheit (150) als eigenes Modul: ŝ mit α = 0,2, Kalman-Filter mit konstanter Geschwindigkeit, Kosinus > 0,7, χ²-Gate, Bestätigung nach 3 Reports, Ende nach 2 s, Ausgabe der Trajektorie, Feedback Id 8 an das Board | P17 | groß |
 | T9 | erledigt | Altbestand entfernen; Hardware-Testskripte nach `tools/` | P14 | klein |
 | T10 | erledigt | Calibrate-Tab: Nordabgleich mit Referenzquelle, Offset über Id 9 (Firmware: CALIBRATE verarbeitet wie DETECT). Pegel und Laufzeit je Mikrofon bleiben offen | P18 | mittel |
