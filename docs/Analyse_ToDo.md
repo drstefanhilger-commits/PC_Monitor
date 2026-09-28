@@ -36,8 +36,8 @@ Status: **behoben** = in diesem Stand umgesetzt und getestet, **offen** = in der
 | P5 | hoch | Die Länge aus `len_id` wird nicht geprüft | Bei einer Länge < 8 wird mit negativer Länge gelesen; bei großen Werten blockiert das Lesen bzw. es werden Frames verschluckt | behoben (T1) |
 | P6 | hoch | UnitReport (Id 5) und Logger (Id 99) sind unbekannt und werden als Fehler gezählt | µs-Zeit, Zeitquelle, Paare, Residuum, Bänder und p_b sowie die Meldungen der Firmware werden nicht angezeigt | behoben (T2) |
 | P7 | hoch | Es fehlen die Kommandos Sync (Id 7: UTC und Temperatur), Unit-ID (5) und SRP-Referenz (6). Id 1 sendet immer 0. | kein UTC-Bezug, Schallgeschwindigkeit bleibt 343 m/s (FSL9 A23), keine Einheiten-Kennung | behoben (Id 3 mit dem Redesign, Id 5, 6, 7 mit T3) |
-| P8 | mittel | Der Detect-Tab zeichnet x = d·sin φ, y = d·cos φ, also φ ab Nord im Uhrzeigersinn; die Firmware sendet φ ab der x-Achse gegen den Uhrzeigersinn | Das Ziel erscheint gespiegelt und gedreht (Firmware 90° wird rechts statt oben gezeichnet) | offen (T5), Konvention mit FSL9 A28 festlegen |
-| P9 | mittel | Die Achsen im Detect-Tab sind fest (±100 m, 0–200 m); die Unit-ID wird ignoriert; es gibt keine Spur und keinen Verlauf | Ziele außerhalb von 100 m fallen aus dem Bild, mehrere Einheiten sind nicht unterscheidbar | offen (T5, T7) |
+| P8 | mittel | Der Detect-Tab zeichnet x = d·sin φ, y = d·cos φ, also φ ab Nord im Uhrzeigersinn; die Firmware sendet φ ab der x-Achse gegen den Uhrzeigersinn | Das Ziel erscheint gespiegelt und gedreht (Firmware 90° wird rechts statt oben gezeichnet) | behoben (T5): Konvention 0° = Nord, im Uhrzeigersinn, Mikrofon 0 = Nord in Firmware (SDS_110 Befund 41) und PC |
+| P9 | mittel | Die Achsen im Detect-Tab sind fest (±100 m, 0–200 m); die Unit-ID wird ignoriert; es gibt keine Spur und keinen Verlauf | Ziele außerhalb von 100 m fallen aus dem Bild, mehrere Einheiten sind nicht unterscheidbar | Achsen und Verlauf behoben (T5); mehrere Einheiten offen (T7) |
 | P10 | hoch | Der Read-Tab teilt die 128 Werte in 8 Mikrofone × 16 auf. Tatsächlich enthält jede Nachricht 128 Samples **eines** Mikrofons (`micNr`) für Block `frameNr` 0…11. Die Werte werden als uint32 statt int32 gelesen. | Pegel und Werte sind falsch, negative Samples erscheinen als ~4·10⁹, der Hop wird nicht zusammengesetzt | behoben (T4, 28.09.2026) |
 | P11 | hoch | Bei READ kommen ~3000 Nachrichten/s. Der Reader meldete jedes Frame als Hex-Text, der Inspector baute bei jedem Frame seinen Text neu auf, und der Read-Tab setzt bei jedem Frame seinen Text | Die GUI friert ein, der Speicher wächst (Queues ohne Grenze) | behoben: Log-Flut, Read-Tab zeichnet mit 10 Hz, Zeitbudget je Poll, begrenzte Queues (T4) |
 | P12 | mittel | `serial.read()` mit 0,1 s Timeout kann den Rest eines Frames nur teilweise liefern | Meldung „payload_incomplete“ und danach Versatz (P3) | behoben (T1: Bytestrom statt fester Lesegrößen) |
@@ -122,6 +122,17 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 
 ![Read](gui_read.png)
 
+## 3c. Umgesetzt: Azimut und Lageplan (T5, 28.09.2026)
+
+- **Festlegung:** 0° = Nord, im Uhrzeigersinn, Mikrofon 0 zeigt nach Nord. Umgesetzt ist das in der Firmware (SDS_110 `Azimuth.hpp`, Befund 41) und hier.
+- **Lageplan:**
+  - Nord oben, Ost rechts (x = r · sin φ, y = r · cos φ).
+  - Ringe mit Beschriftung, Strahlen alle 30° und Himmelsrichtungen N/O/S/W.
+  - Der Radius passt sich an die größte Distanz im Verlauf an (25 m … 5 km).
+  - Die Spur zeigt die letzten 60 Positionen.
+- **Verläufe:** Distanz (automatische Skala), Azimut und Konfidenz über die letzten 200 Reports; groß angezeigt werden Azimut, Distanz und Konfidenz des letzten Reports.
+- **Tests:** `test_detect.py` prüft die Umrechnung für N/O/S/W/NO, die Wahl des Radius und den Punkt im Osten bei 90°.
+
 ## 4. ToDo-Liste
 
 | Nr. | Prio | Aufgabe | Befunde | Aufwand |
@@ -130,7 +141,7 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 | T2 | erledigt | UnitReport Id 5 parsen: µs-Zeit und Quelle, Paare, Residuum, Bänder mit p_b, Anzeige im Detect-Tab (Balken p_b je Band). Logger Id 99 als INFO ins Status-Fenster. | P6 | mittel |
 | T3 | erledigt | Sync Id 7 senden: beim Verbinden und dann jede Minute, UTC in µs und Temperatur aus einem Eingabefeld (später Sensor). Außerdem Unit-ID Id 5 und einen Schalter SRP-Referenz Id 6 ins Bedienfeld. | P7 | klein |
 | T4 | erledigt | Den Read-Tab neu bauen: Hop aus 8 × 12 Blöcken zusammensetzen, int32 lesen, Pegel je Mikrofon in dBFS, Wellenform und Spektrum. Anzeige mit höchstens 10 Hz, Queues begrenzen. | P10, P11 | mittel |
-| T5 | mittel | Azimut-Konvention mit der Firmware festlegen (FSL9 A28: ab Nord). Detect-Plot danach ausrichten, Achsen automatisch skalieren, Verlauf der Ziele. | P8, P9 | klein |
+| T5 | erledigt | Azimut-Konvention mit der Firmware festlegen (FSL9 A28: ab Nord). Detect-Plot danach ausrichten, Achsen automatisch skalieren, Verlauf der Ziele. | P8, P9 | klein |
 | T6 | mittel | Einen USB-Abbruch erkennen: Reader meldet den Abbruch, der Schalter geht auf Off, Fehlermeldung | P16 | klein |
 | T7 | hoch | Mehrere Einheiten: je Einheit ein Port bzw. eine Unit-ID, Positionen konfigurierbar. PC-Teil von 126 und 128 (Multilateration N ≥ 3, gemeinsamer Modus N = 2) und Candidate Report (130). Dafür muss die Firmware Spektren oder TDOA je Einheit liefern (Architektur klären). | P17, P19 | groß |
 | T8 | hoch | Tracking-Einheit (150) als eigenes Modul: ŝ mit α = 0,2, Kalman-Filter mit konstanter Geschwindigkeit, Kosinus > 0,7, χ²-Gate, Bestätigung nach 3 Reports, Ende nach 2 s, Ausgabe der Trajektorie, Feedback Id 8 an das Board | P17 | groß |
