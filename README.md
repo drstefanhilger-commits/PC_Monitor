@@ -46,7 +46,7 @@ python -m app.main
   - „Board: …“ zeigt, was das Board meldet (Id 6, jede Sekunde), mit der Quelle PC oder GNSS. Orange: kein Standort oder ein anderer als der eingegebene.
   - In der Hardware-Version 2 setzt ein GPS-Modul den Standort; eine gültige GNSS-Position überschreibt der PC nicht.
   - Der CSV-Export enthält damit Breite und Länge jedes Spurpunkts.
-- **Tracking:** Die Tracking-Einheit bildet aus den Reports eine Spur. Der Lageplan zeigt die letzten 10 Punkte grün; der CSV-Export enthält alle.
+- **Tracking:** Die Tracking-Einheit bildet aus den Reports eine Spur. Der Lageplan zeigt die letzten 50 Punkte grün (`TRACK_SHOWN`); der CSV-Export enthält alle.
   - „Feedback“ sendet ŝ und die Vorhersage an das Board (Id 8).
   - „Trajektorie als CSV …“ speichert die Spuren.
 - **Unten:** Status- und Fehlermeldungen.

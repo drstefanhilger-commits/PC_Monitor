@@ -71,6 +71,11 @@ class TabRead(QWidget):
         top.addWidget(self.rec_btn)
         top.addWidget(QLabel("Wellenform/Spektrum:"))
         top.addWidget(self.mic_combo)
+        # Rohdaten ohne AGC (Firmware seit 28.09.2026) sind klein, z. B. −40 dBFS: Skala automatisch
+        self.scale_combo = QComboBox()
+        self.scale_combo.addItems(["Skala automatisch", "Skala ±1 (Vollaussteuerung)"])
+        self.scale_combo.currentIndexChanged.connect(lambda _: self._mark())
+        top.addWidget(self.scale_combo)
         lay.addLayout(top)
 
         # Pegel je Mikrofon (RMS in dBFS)
@@ -92,6 +97,7 @@ class TabRead(QWidget):
         pw.setLabel("left", "Amplitude (Vollaussteuerung = 1)")
         pw.setLabel("bottom", "Zeit", units="ms")
         self.wave_plot.setYRange(-1, 1)
+        self.wave_plot.getPlotItem().setTitle("Wellenform (1536 Samples = 32 ms)")
         self.t_ms = np.arange(HOP) / 48.0
         self.curves = [self.wave_plot.plot(pen=pg.intColor(m, N_MICS)) for m in range(N_MICS)]
         lay.addWidget(self.wave_plot, 2)
@@ -226,6 +232,16 @@ class TabRead(QWidget):
         sel = self.mic_combo.currentIndex()
         spec = self.spectrum_dbfs()
         show = FREQS <= SPEC_MAX_HZ
+        shown = range(N_MICS) if sel == N_MICS else [sel]
+        peak = max(float(np.max(np.abs(self.samples[m]))) for m in shown) / FULL_SCALE
+        peak_db = 20 * np.log10(peak) if peak > 0 else -np.inf
+        if self.scale_combo.currentIndex() == 0:
+            y = max(peak * 1.1, 1e-6)
+            self.wave_plot.setYRange(-y, y, padding=0)
+        else:
+            self.wave_plot.setYRange(-1, 1, padding=0)
+        self.wave_plot.getPlotItem().setTitle(
+            f"Wellenform (1536 Samples = 32 ms), Rohdaten, Spitze {peak_db:.1f} dBFS")
         for m, (c, sc) in enumerate(zip(self.curves, self.spec_curves)):
             if sel == N_MICS or sel == m:
                 c.setData(self.t_ms, self.samples[m] / FULL_SCALE)

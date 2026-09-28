@@ -55,3 +55,21 @@ def test_recording_wav(qapp, tmp_path):
     assert v[5, 2] == 20005 and v[HOP - 1, 7] == 70000 + HOP - 1     # Hop 100: Mikrofon 2 / 7
     assert not v[HOP:4 * HOP].any()                                  # Hop 101 unvollständig, 102, 103 fehlen
     assert v[4 * HOP + 3, 1] == -5000 + 3 and v[4 * HOP + 3, 4] == -20000 + 3   # Hop 104, negative Werte
+
+
+def test_waveform_autoscale(qapp):
+    """Kleine Rohdaten (−40 dBFS) füllen die Wellenform (Skala automatisch); ±1 wählbar."""
+    tab = TabRead()
+    tab.show()
+    amp = int(0.01 * (1 << 23))
+    feed(tab, hop_frames(1, lambda m: 0))
+    tab.samples[:] = 0
+    tab.samples[0, 100] = amp
+    tab._dirty = True
+    tab.refresh()
+    lo, hi = tab.wave_plot.getPlotItem().getViewBox().viewRange()[1]
+    assert abs(hi - 0.011) < 1e-3 and abs(lo + 0.011) < 1e-3
+    assert "-40.0 dBFS" in tab.wave_plot.getPlotItem().titleLabel.text
+    tab.scale_combo.setCurrentIndex(1)
+    tab.refresh()
+    assert tab.wave_plot.getPlotItem().getViewBox().viewRange()[1] == [-1.0, 1.0]
