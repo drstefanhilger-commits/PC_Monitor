@@ -81,3 +81,25 @@ def test_read_mode_under_board_load():
     assert np.allclose(lv, exp, atol=0.1), (lv, exp)
     assert "Blöcke 96/96" in w.read_tab.info_label.text()
     w.close()
+
+
+def test_read_tab_spectrum_and_levels():
+    """Sinus je Mikrofon (Frequenz auf einem Bin): Spitze bei f, Pegel = 20·log10(A) dBFS, RMS = A/√2."""
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow()
+    reader = USBReader(None, w.model)
+    freqs = [250.0 + 250.0 * m for m in range(8)]          # 250 … 2000 Hz, Vielfache von 31,25 Hz
+    amps = [0.5 / 2 ** m for m in range(8)]
+    n = np.arange(1536)
+    hop = []
+    for m in range(8):
+        x = (amps[m] * FULL_SCALE * np.sin(2 * np.pi * freqs[m] * n / 48000)).astype(np.int32)
+        hop += [F.read_block(mic=m, block=b, samples=x[b * BLOCK:(b + 1) * BLOCK].tolist(), ts=7) for b in range(12)]
+    reader.handle_bytes(b"".join(hop))
+    w.process_queue()
+    for m in range(8):
+        f, lv = w.read_tab.peak(m)
+        assert f == freqs[m], (m, f)
+        assert abs(lv - 20 * np.log10(amps[m])) < 0.1, (m, lv)
+    w.read_tab.show(); w.read_tab.refresh()                 # Zeichnen ohne Fehler
+    w.close()

@@ -5,6 +5,10 @@ Jede Read-Nachricht (Id 2, 532 Byte) enthält 128 Samples **eines** Mikrofons (m
 Block frameNr 0…11 eines Hops (1536 Samples, 32 ms), als int32 skaliert auf 24 Bit (±2²³).
 Im Modus READ kommen ~3000 Nachrichten/s: update_frame() legt die Samples nur in den Hop-Puffer
 (billig); gezeichnet wird mit höchstens REFRESH_HZ und nur, wenn der Tab sichtbar ist.
+
+Anzeige: Pegel je Mikrofon (RMS, dBFS), Wellenform und Spektrum des letzten Hops (Hann-Fenster,
+1536 Punkte, 31,25 Hz je Bin; normiert so, dass ein Sinus mit Amplitude A als 20·log10(A) dBFS
+erscheint). Markiert ist der Bereich der Analysebänder 80 Hz … 4 kHz (FSL9 §2).
 """
 import struct
 import time
@@ -20,6 +24,11 @@ BLOCKS_PER_HOP = 12
 HOP = BLOCK * BLOCKS_PER_HOP                  # 1536
 FULL_SCALE = float(1 << 23)
 FRAME_LEN = 532
+SAMPLE_RATE = 48000
+BAND_LO_HZ, BAND_HI_HZ = 80.0, 4000.0
+SPEC_MAX_HZ = 8000.0                          # Bandpass der Vorverarbeitung 118: 80 Hz … 8 kHz
+WINDOW = np.hanning(HOP)
+FREQS = np.fft.rfftfreq(HOP, 1.0 / SAMPLE_RATE)
 
 
 class TabRead(QWidget):
@@ -43,7 +52,7 @@ class TabRead(QWidget):
         self.mic_combo.setCurrentIndex(N_MICS)
         self.mic_combo.currentIndexChanged.connect(lambda _: self._mark())
         top.addWidget(self.info_label, 1)
-        top.addWidget(QLabel("Wellenform:"))
+        top.addWidget(QLabel("Wellenform/Spektrum:"))
         top.addWidget(self.mic_combo)
         lay.addLayout(top)
 
@@ -69,6 +78,21 @@ class TabRead(QWidget):
         self.t_ms = np.arange(HOP) / 48.0
         self.curves = [self.wave_plot.plot(pen=pg.intColor(m, N_MICS)) for m in range(N_MICS)]
         lay.addWidget(self.wave_plot, 2)
+
+        # Spektrum des Hops
+        self.spec_plot = pg.PlotWidget()
+        ps = self.spec_plot.getPlotItem()
+        ps.setTitle("Spektrum (Hann, 31,25 Hz je Bin); markiert: Analysebänder 80 Hz – 4 kHz")
+        ps.setLabel("left", "dBFS")
+        ps.setLabel("bottom", "Frequenz", units="Hz")
+        self.spec_plot.setXRange(0, SPEC_MAX_HZ)
+        self.spec_plot.setYRange(-140, 0)
+        ps.showGrid(x=True, y=True, alpha=0.3)
+        band = pg.LinearRegionItem(values=(BAND_LO_HZ, BAND_HI_HZ), movable=False,
+                                   brush=pg.mkBrush(80, 160, 255, 40))
+        self.spec_plot.addItem(band)
+        self.spec_curves = [self.spec_plot.plot(pen=pg.intColor(m, N_MICS)) for m in range(N_MICS)]
+        lay.addWidget(self.spec_plot, 2)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
@@ -102,6 +126,19 @@ class TabRead(QWidget):
         rms = np.sqrt(np.mean(x * x, axis=1))
         return 20.0 * np.log10(np.maximum(rms, 1e-6))
 
+    def spectrum_dbfs(self) -> np.ndarray:
+        """Betrag je Mikrofon und Bin in dBFS (Sinus mit Amplitude A -> 20·log10(A))."""
+        x = self.samples.astype(np.float64) / FULL_SCALE
+        mag = np.abs(np.fft.rfft(x * WINDOW, axis=1)) * (2.0 / WINDOW.sum())
+        return 20.0 * np.log10(np.maximum(mag, 1e-7))
+
+    def peak(self, mic: int):
+        """(Frequenz in Hz, Pegel in dBFS) des stärksten Bins ab BAND_LO_HZ."""
+        s = self.spectrum_dbfs()[mic]
+        lo = int(np.searchsorted(FREQS, BAND_LO_HZ))
+        k = lo + int(np.argmax(s[lo:]))
+        return float(FREQS[k]), float(s[k])
+
     def refresh(self):
         now = time.monotonic()
         if now - self._rate_t0 >= 1.0:
@@ -113,11 +150,15 @@ class TabRead(QWidget):
         lv = self.levels_dbfs()
         self.level_bars.setOpts(height=lv + 120.0)
         sel = self.mic_combo.currentIndex()
-        for m, c in enumerate(self.curves):
+        spec = self.spectrum_dbfs()
+        show = FREQS <= SPEC_MAX_HZ
+        for m, (c, sc) in enumerate(zip(self.curves, self.spec_curves)):
             if sel == N_MICS or sel == m:
                 c.setData(self.t_ms, self.samples[m] / FULL_SCALE)
+                sc.setData(FREQS[show], spec[m][show])
             else:
                 c.setData([], [])
+                sc.setData([], [])
         complete = int(self.filled.sum())
         self.info_label.setText(
             f"Hop t = {self.last_ts} ms   Blöcke {complete}/{N_MICS * BLOCKS_PER_HOP}   "
