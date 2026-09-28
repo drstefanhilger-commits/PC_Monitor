@@ -9,7 +9,7 @@
 
 ## Zusammenfassung
 
-Von 25 Anforderungen an den PC-Monitor sind 6 erfüllt, 3 teilweise erfüllt, 14 nicht erfüllt, 1 offen und 1 nicht im Umfang (Stand nach T1–T3).
+Von 25 Anforderungen an den PC-Monitor sind 7 erfüllt, 3 teilweise erfüllt, 14 nicht erfüllt und 1 nicht im Umfang (Stand nach T1–T5).
 
 - Der PC-Monitor ist heute eine Anzeige für **eine** Einheit. Er steuert Betriebsart, Signalquelle, Unit-ID und SRP, sendet UTC und Temperatur (Sync) und zeigt Detect-Frame und UnitReport an: UTC in µs, Paare, Residuum, Bänder mit p_b.
 - Die patentwesentlichen PC-Funktionen fehlen vollständig:
@@ -32,7 +32,7 @@ Code-Referenzen beziehen sich auf `app/`.
 | P4 | §5, Anspr. 1(e), 10 | Inter-Unit-GCC-PHAT | Korrelation zwischen Einheiten mit gemeinsamer Selektion und Gewichten | nicht vorhanden; die Daten dafür werden nicht übertragen (Architekturfrage) | – | Nicht erfüllt |
 | P5 | §6(a) | Multilateration | N ≥ 3: Hyperbeln \|x − u_i\| − \|x − u_j\| = c·τ_ij, gewichtete LS, Gewicht = Peak-Ratio | nicht vorhanden | – | Nicht erfüllt |
 | P6 | §6(b) | Gemeinsamer Modus | N = 2: eine Hyperbel + zwei Peilungen, gewichtete LS | nicht vorhanden; die Peilungen im UnitReport Id 5 werden nicht gelesen | – | Nicht erfüllt |
-| P7 | §6, FIG. 5 | Referenzpunkt und Azimut | Zentroid der Einheiten, φ ab Nord | eine Einheit, Ursprung = Array. Der Plot zeichnet φ ab Nord im Uhrzeigersinn, die Firmware liefert φ ab der x-Achse gegen den Uhrzeigersinn (Befund P8). | `tabs/tab_detect.py update_frame` | Offen |
+| P7 | §6, FIG. 5 | Referenzpunkt und Azimut | Zentroid der Einheiten, φ ab Nord | Azimut 0° = Nord, im Uhrzeigersinn, Mikrofon 0 = Nord in Firmware und Lageplan (Nord oben, Ost rechts); Referenzpunkt = Array (eine Einheit, gleich dem Zentroid); Zentroid mehrerer Einheiten mit T7 | `tabs/tab_detect.py compass_xy`, SDS_110 `Azimuth.hpp` | Erfüllt |
 | P8 | §6 | Kein Kandidat ohne ausreichende TDOA | bei < 2 unabhängigen TDOA (a) bzw. fehlender Peilung (b) keine Position | Lokalisation fehlt (P5, P6) | – | Nicht erfüllt |
 | P9 | §7, Anspr. 1(g) | Candidate Report: Zeit | UTC, µs | UnitReport Id 5: time_us (u64) mit Zeitquelle, angezeigt als UTC mit µs bzw. Laufzeit | `usb/messages.py parse_unit_report, time_text`, `tabs/tab_detect.py update_unit_report` | Erfüllt |
 | P10 | §7 | Candidate Report: Ort | φ und r | φ und r aus Detect Id 1 angezeigt; r aus dem Pegelmodell einer Einheit, nicht aus TDOA | `tabs/tab_detect.py update_frame` | Teilweise |
@@ -60,6 +60,6 @@ Die Zeilen P23 und P24 stammen aus der ICD und nicht aus FSL9. Die Zählung in d
 | --- | --- | --- | --- |
 | 1 | P9–P13 | erledigt: UnitReport Id 5 lesen und anzeigen, Reader mit Resync und CRC | T1, T2 |
 | 2 | P1, P2 | erledigt: Sync Id 7 mit UTC und Temperatur; offen: Temperatursensor, GNSS-PPS (HW-Version 2) | T3 |
-| 3 | P7 | Azimut-Konvention festlegen (ab Nord) und in Firmware und Plot einheitlich umsetzen | T5 |
+| 3 | P7 | erledigt: Azimut ab Nord im Uhrzeigersinn in Firmware und Plot | T5 |
 | 4 | P14–P21 | Tracking-Einheit als eigenes Modul (Komponente B), zunächst mit Reports **einer** Einheit (Peilung + Pegel-Distanz); Feedback Id 8 zusammen mit der Firmware festlegen | T8 |
 | 5 | P3–P6, P8, P22 | Mehrere Einheiten und Lokalisation (Komponente A); vorher die Architekturfrage klären | T7 |
