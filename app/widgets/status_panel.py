@@ -15,6 +15,7 @@ class StatusPanel(QWidget):
     """
 
     MAX_LINES = 2000
+    MAX_PER_SECOND = 20          # mehr Meldungen je Sekunde werden zusammengefasst (Fehlerflut)
     COLORS = {"INFO": "#424242", "WARN": "#ef6c00", "ERROR": "#c62828", "TX": "#2e7d32"}
 
     def __init__(self, model, parent=None):
@@ -38,9 +39,23 @@ class StatusPanel(QWidget):
         self.text.setReadOnly(True)
         self.text.setMaximumBlockCount(self.MAX_LINES)
         lay.addWidget(self.text)
+        self._sec, self._count, self._suppressed = 0, 0, 0
         self.update_stats()
 
     def log(self, message: str, level: str = "INFO"):
+        sec = int(time.monotonic())
+        if sec != self._sec:
+            if self._suppressed:
+                n, self._suppressed = self._suppressed, 0
+                self._write(f"… {n} weitere Meldungen in der letzten Sekunde unterdrückt", "WARN")
+            self._sec, self._count = sec, 0
+        self._count += 1
+        if self._count > self.MAX_PER_SECOND:
+            self._suppressed += 1
+            return
+        self._write(message, level)
+
+    def _write(self, message: str, level: str):
         cur = self.text.textCursor()
         cur.movePosition(QTextCursor.MoveOperation.End)
         fmt = QTextCharFormat()

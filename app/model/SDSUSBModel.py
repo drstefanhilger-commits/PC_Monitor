@@ -37,6 +37,8 @@ class SDSUSBModel:
     Thread-safe durch Queues.
     """
 
+    QUEUE_MAX = 20000          # ~6 s READ-Daten
+
     def __init__(self):
         # ------------------------------------------------------------
         # Connection state
@@ -48,11 +50,15 @@ class SDSUSBModel:
         # ------------------------------------------------------------
         # Incoming SDS message queues
         # ------------------------------------------------------------
-        self.detect_queue = Queue()
-        self.read_queue = Queue()
-        self.unit_queue = Queue()           # UnitReport (Id 5)
-        self.log_queue = Queue()            # Logger (Id 99)
-        self.inspect_queue = Queue()
+        # begrenzt: kommt die Anzeige nicht nach, verwirft der Reader (put_frame) und zählt,
+        # statt den Speicher zu füllen (READ: ~3000 Nachrichten/s)
+        self.detect_queue = Queue(maxsize=self.QUEUE_MAX)
+        self.read_queue = Queue(maxsize=self.QUEUE_MAX)
+        self.unit_queue = Queue(maxsize=self.QUEUE_MAX)      # UnitReport (Id 5)
+        self.log_queue = Queue(maxsize=self.QUEUE_MAX)       # Logger (Id 99)
+        self.inspect_queue = Queue(maxsize=self.QUEUE_MAX)
+        self._dropped = 0
+        self._dropped_lock = threading.Lock()
 
         # ------------------------------------------------------------
         # Inspector last-frame info (empfangen)
@@ -89,6 +95,23 @@ class SDSUSBModel:
 
         # Inspector-Tab Referenz (wird im MainWindow gesetzt)
         self.inspector = None
+
+    # ------------------------------------------------------------
+    # Frame in eine Queue legen (Reader-Thread); voll -> verwerfen und zählen
+    # ------------------------------------------------------------
+    def put_frame(self, q: Queue, item) -> bool:
+        try:
+            q.put_nowait(item)
+            return True
+        except Exception:
+            with self._dropped_lock:
+                self._dropped += 1
+            return False
+
+    def take_dropped(self) -> int:
+        with self._dropped_lock:
+            n, self._dropped = self._dropped, 0
+        return n
 
     # ------------------------------------------------------------
     # RAW-Dump aktualisieren
