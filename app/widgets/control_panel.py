@@ -2,8 +2,8 @@
 
 import serial.tools.list_ports
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (QComboBox, QFrame, QGroupBox, QLabel, QPushButton, QSizePolicy,
-                             QVBoxLayout, QHBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGroupBox, QLabel,
+                             QPushButton, QSizePolicy, QSpinBox, QVBoxLayout, QHBoxLayout, QWidget)
 
 from app.model.SDSUSBModel import SDSMode
 from app.widgets.mode_dial import ModeDial
@@ -16,12 +16,17 @@ class ControlPanel(QWidget):
       - USB-Port + On/Off (Verbindung öffnen/schließen)
       - Simulation/Real (ICD Id 3)
       - Drehschalter Detect/Read/Calibrate (ICD Id 2, wählt auch den sichtbaren Tab)
+      - Board: Unit-ID setzen (Id 5), SRP-Referenzscan aus/ein (Id 6)
+      - Sync: UTC + Lufttemperatur (Id 7), automatisch jede Minute, bei Temperaturänderung sofort
     Die Signale gehen an das MainWindow; das Panel selbst sendet nichts.
     """
 
     power_toggled = pyqtSignal(bool)          # True = verbinden
     simulation_toggled = pyqtSignal(bool)     # True = Simulation, False = Mikrofone
     mode_changed = pyqtSignal(object)         # SDSMode
+    unit_id_set = pyqtSignal(int)
+    srp_toggled = pyqtSignal(bool)
+    sync_requested = pyqtSignal()             # Sync jetzt senden (Knopf oder Temperatur geändert)
 
     WIDTH = 230
 
@@ -69,6 +74,53 @@ class ControlPanel(QWidget):
         vm.addWidget(self.mode_dial)
         lay.addWidget(box_mode)
 
+        # --- Board --------------------------------------------------------
+        box_board = QGroupBox("Board")
+        vb = QVBoxLayout(box_board)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Unit-ID"))
+        self.unit_spin = QSpinBox()
+        self.unit_spin.setRange(0, 0xFFFF)
+        self.unit_spin.setDisplayIntegerBase(16)
+        self.unit_spin.setPrefix("0x")
+        self.btn_unit = QPushButton("Setzen")
+        self.btn_unit.clicked.connect(lambda: self.unit_id_set.emit(self.unit_spin.value()))
+        row.addWidget(self.unit_spin, 1)
+        row.addWidget(self.btn_unit)
+        vb.addLayout(row)
+        self.sw_srp = ToggleSwitch("SRP aus", "ein", on_color="#6a1b9a")
+        self.sw_srp.setToolTip("SRP-PHAT-Referenzscan (Vergleich, ~2,3 ms je Frame)")
+        self.sw_srp.toggled.connect(self.srp_toggled)
+        vb.addWidget(self.sw_srp)
+        lay.addWidget(box_board)
+
+        # --- Sync (UTC + Temperatur) -----------------------------------------
+        box_sync = QGroupBox("Sync (UTC, Temperatur)")
+        vy = QVBoxLayout(box_sync)
+        row = QHBoxLayout()
+        self.chk_temp = QCheckBox("Temp.")
+        self.chk_temp.setChecked(True)
+        self.temp_spin = QDoubleSpinBox()
+        self.temp_spin.setRange(-40.0, 60.0)
+        self.temp_spin.setDecimals(1)
+        self.temp_spin.setSingleStep(0.5)
+        self.temp_spin.setSuffix(" °C")
+        self.temp_spin.setValue(20.0)
+        self.chk_temp.toggled.connect(self.temp_spin.setEnabled)
+        self.chk_temp.toggled.connect(lambda _: self.sync_requested.emit())
+        self.temp_spin.editingFinished.connect(self.sync_requested)
+        row.addWidget(self.chk_temp)
+        row.addWidget(self.temp_spin, 1)
+        vy.addLayout(row)
+        row = QHBoxLayout()
+        self.btn_sync = QPushButton("Sync jetzt")
+        self.btn_sync.clicked.connect(self.sync_requested)
+        self.sync_label = QLabel("–")
+        row.addWidget(self.btn_sync)
+        row.addWidget(self.sync_label, 1)
+        vy.addLayout(row)
+        lay.addWidget(box_sync)
+
         lay.addStretch()
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
@@ -95,6 +147,16 @@ class ControlPanel(QWidget):
 
     def mode(self) -> SDSMode:
         return self.mode_dial.mode()
+
+    def srp(self) -> bool:
+        return self.sw_srp.isChecked()
+
+    def temperature(self):
+        """Lufttemperatur in °C oder None (nicht senden = unbekannt)."""
+        return self.temp_spin.value() if self.chk_temp.isChecked() else None
+
+    def set_sync_text(self, text: str):
+        self.sync_label.setText(text)
 
     def set_connected(self, connected: bool, text: str):
         """Zustand nach (Dis-)Connect; setzt den Schalter ohne erneutes Signal."""

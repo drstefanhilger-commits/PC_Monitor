@@ -1,26 +1,32 @@
 from PyQt6.QtCore import QThread, pyqtSignal
 import time
-import struct
+
+from app.usb.sds_parser import SDSParser
 
 
 class USBReader(QThread):
     """
-    USBReader:
-    - Liest SDS-Frames gemäß C-Strukturen SDS_MsgDetect / SDS_MsgRead
-    - Magic: 0xDEADBEEF (Little Endian auf der Leitung: EF BE AD DE)
-    - len_id: [len (24bit) | msg_id (8bit)]
-    - Schiebt fertige Frames in die Queues des SDSUSBModel
-    - Meldet Logs über log_signal (thread-safe)
+    USBReader (SDS_110 doc/ICD_SDS_PC_Monitor.md, Abschnitt 5):
+    - liest verfügbare Bytes und zerlegt sie mit SDSParser (Resync auf das Magic, Länge je Id, CRC)
+    - legt gültige Frames nach Id in die Queues des SDSUSBModel:
+        1 Detect -> detect_queue, 2 Read -> read_queue, 5 UnitReport -> unit_queue,
+        99 Logger -> log_queue, andere -> inspect_queue ("unknown_msg_id")
+    - Fehler (Resync, Länge, CRC) -> inspect_queue ("error")
+    - meldet Logs über log_signal (thread-safe)
     """
 
     log_signal = pyqtSignal(str)
+
+    ROUTE = {1: "detect_queue", 2: "read_queue", 5: "unit_queue", 99: "log_queue"}
+    CHUNK = 4096
 
     def __init__(self, ser, model, verbose: bool = False):
         super().__init__()
         self.ser = ser
         self.model = model
         self.running = True
-        # verbose: jeden Header und Frame als Hex melden (bei READ ~3000 Frames/s -> nur zur Diagnose)
+        self.parser = SDSParser()
+        # verbose: jedes Frame als Hex melden (bei READ ~3000 Frames/s -> nur zur Diagnose)
         self.verbose = verbose
 
     def stop(self):
@@ -28,77 +34,34 @@ class USBReader(QThread):
 
     def run(self):
         self.log_signal.emit("[USBReader] gestartet")
-
         while self.running:
             try:
-                # ------------------------------------------------------------
-                # HEADER lesen (8 Bytes)
-                # ------------------------------------------------------------
-                header = self.ser.read(8)
-                if len(header) < 8:
-                    continue
-
-                # Magic prüfen (Little Endian)
-                magic = int.from_bytes(header[0:4], "little")
-                if magic != 0xDEADBEEF:
-                    self.log_signal.emit(
-                        f"[USBReader] MAGIC FAIL: {header[0:4].hex()}"
-                    )
-                    self.model.inspect_queue.put(
-                        ("error", header, "magic_fail")
-                    )
-                    continue
-
-                # len_id (Little Endian)
-                len_id = int.from_bytes(header[4:8], "little")
-
-                msg_id = (len_id >> 24) & 0xFF       # oberes Byte
-                length = len_id & 0x00FFFFFF         # untere 24 Bits
-
-                if self.verbose:
-                    self.log_signal.emit(
-                        f"[USBReader] Header OK: magic=DEADBEEF, msg_id={msg_id}, len={length}"
-                    )
-
-                # ------------------------------------------------------------
-                # Rest des Frames nachladen
-                # ------------------------------------------------------------
-                remaining = length - 8
-                payload = self.ser.read(remaining)
-
-                if len(payload) != remaining:
-                    self.log_signal.emit(
-                        f"[USBReader] Payload unvollständig: {len(payload)} / {remaining}"
-                    )
-                    self.model.inspect_queue.put(
-                        ("error", header + payload, "payload_incomplete")
-                    )
-                    continue
-
-                frame = header + payload
-
-                # RAW dump aktualisieren
-                self.model.update_raw_dump(frame)
-
-                if self.verbose:
-                    self.log_signal.emit(
-                        f"[USBReader] RAW FRAME ({len(frame)} bytes): {frame.hex()}"
-                    )
-
-                # ------------------------------------------------------------
-                # SDS Message Routing
-                # ------------------------------------------------------------
-                if msg_id == 1:  # DETECT (32 Bytes)
-                    self.model.detect_queue.put((msg_id, frame))
-
-                elif msg_id == 2:  # READ (532 Bytes)
-                    self.model.read_queue.put((msg_id, frame))
-
-                else:
-                    self.model.inspect_queue.put(
-                        ("unknown_msg_id", frame, f"unknown_msg_id={msg_id}")
-                    )
-
+                n = getattr(self.ser, "in_waiting", 0) or 1
+                chunk = self.ser.read(min(n, self.CHUNK))
             except Exception as e:
                 self.log_signal.emit(f"[USBReader] Lesefehler: {e}")
                 time.sleep(0.05)
+                continue
+            if chunk:
+                self.handle_bytes(chunk)
+
+    def handle_bytes(self, chunk: bytes):
+        """Bytes zerlegen und verteilen (auch ohne Thread aufrufbar, z. B. in Tests)."""
+        self.parser.feed(chunk)
+        while True:
+            item = self.parser.next_item()
+            if item is None:
+                return
+            if item[0] == "error":
+                _, raw, reason = item
+                self.model.inspect_queue.put(("error", raw, reason))
+                continue
+            _, msg_id, frame = item
+            self.model.update_raw_dump(frame)
+            if self.verbose:
+                self.log_signal.emit(f"[USBReader] Frame id {msg_id} ({len(frame)} Byte): {frame.hex()}")
+            queue_name = self.ROUTE.get(msg_id)
+            if queue_name:
+                getattr(self.model, queue_name).put((msg_id, frame))
+            else:
+                self.model.inspect_queue.put(("unknown_msg_id", frame, f"unknown_msg_id={msg_id}"))

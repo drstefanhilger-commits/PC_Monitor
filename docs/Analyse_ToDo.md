@@ -6,7 +6,7 @@
   - Schnittstelle: SDS_110 `doc/ICD_SDS_PC_Monitor.md`
   - Patent: FSL9 (SDS_110 `doc/Stefan_FSL9.docx`)
   - Traceability der Firmware: SDS_110 `doc/Traceability_FSL9.md`
-- **Umgesetzt in diesem Stand:** GUI-Redesign (Abschnitt 3) sowie die Befunde P1, P2, P11 (Log-Flut) und P13–P15. Die übrigen Befunde sind offen und in der ToDo-Liste (Abschnitt 4) eingeplant.
+- **Umgesetzt:** GUI-Redesign (Abschnitt 3) sowie die Befunde P1, P2, P11 (Log-Flut) und P13–P15. Seit 28.09.2026 außerdem T1–T3: P3–P7 und P12 sind behoben (Abschnitt 3a). Die übrigen Befunde sind offen und in der ToDo-Liste (Abschnitt 4) eingeplant.
 
 ## 1. Aufbau
 
@@ -31,16 +31,16 @@ Status: **behoben** = in diesem Stand umgesetzt und getestet, **offen** = in der
 | --- | --- | --- | --- | --- |
 | P1 | hoch | `SDSMode` hatte READ = 2 und CALIBRATE = 3; die Firmware erwartet CALIBRATE = 2 und READ = 3 | Der Drehschalter auf READ hat CALIBRATE geschickt und umgekehrt. Das ist die Ursache von SDS_110 Befund 25. | behoben (`SDSUSBModel.py`) |
 | P2 | hoch | Die CRC der Kommandos war fest `12 34 56 78` | Sobald die Firmware die CRC prüft (SDS_110 Befund 12), würde sie jedes Kommando verwerfen | behoben: CRC32 wie zlib, big-endian (ICD 3) |
-| P3 | hoch | Findet der Reader das Magic nicht, verwirft er 8 Byte und liest den nächsten Kopf | Ist der Datenstrom um k Byte versetzt, bleibt er versetzt, und alle folgenden Frames gehen verloren. Der vorhandene `SDSParser` synchronisiert Byte für Byte, wird aber nicht benutzt. | offen (T1) |
-| P4 | hoch | Empfangene Frames werden ohne CRC-Prüfung angenommen | Gestörte Frames werden angezeigt | offen (T1) |
-| P5 | hoch | Die Länge aus `len_id` wird nicht geprüft | Bei einer Länge < 8 wird mit negativer Länge gelesen; bei großen Werten blockiert das Lesen bzw. es werden Frames verschluckt | offen (T1) |
-| P6 | hoch | UnitReport (Id 5) und Logger (Id 99) sind unbekannt und werden als Fehler gezählt | µs-Zeit, Zeitquelle, Paare, Residuum, Bänder und p_b sowie die Meldungen der Firmware werden nicht angezeigt | offen (T2) |
-| P7 | hoch | Es fehlen die Kommandos Sync (Id 7: UTC und Temperatur), Unit-ID (5) und SRP-Referenz (6). Id 1 sendet immer 0. | kein UTC-Bezug, Schallgeschwindigkeit bleibt 343 m/s (FSL9 A23), keine Einheiten-Kennung | Simulation (Id 3) behoben, Rest offen (T3) |
+| P3 | hoch | Findet der Reader das Magic nicht, verwirft er 8 Byte und liest den nächsten Kopf | Ist der Datenstrom um k Byte versetzt, bleibt er versetzt, und alle folgenden Frames gehen verloren. Der vorhandene `SDSParser` synchronisiert Byte für Byte, wird aber nicht benutzt. | behoben (T1) |
+| P4 | hoch | Empfangene Frames werden ohne CRC-Prüfung angenommen | Gestörte Frames werden angezeigt | behoben (T1) |
+| P5 | hoch | Die Länge aus `len_id` wird nicht geprüft | Bei einer Länge < 8 wird mit negativer Länge gelesen; bei großen Werten blockiert das Lesen bzw. es werden Frames verschluckt | behoben (T1) |
+| P6 | hoch | UnitReport (Id 5) und Logger (Id 99) sind unbekannt und werden als Fehler gezählt | µs-Zeit, Zeitquelle, Paare, Residuum, Bänder und p_b sowie die Meldungen der Firmware werden nicht angezeigt | behoben (T2) |
+| P7 | hoch | Es fehlen die Kommandos Sync (Id 7: UTC und Temperatur), Unit-ID (5) und SRP-Referenz (6). Id 1 sendet immer 0. | kein UTC-Bezug, Schallgeschwindigkeit bleibt 343 m/s (FSL9 A23), keine Einheiten-Kennung | behoben (Id 3 mit dem Redesign, Id 5, 6, 7 mit T3) |
 | P8 | mittel | Der Detect-Tab zeichnet x = d·sin φ, y = d·cos φ, also φ ab Nord im Uhrzeigersinn; die Firmware sendet φ ab der x-Achse gegen den Uhrzeigersinn | Das Ziel erscheint gespiegelt und gedreht (Firmware 90° wird rechts statt oben gezeichnet) | offen (T5), Konvention mit FSL9 A28 festlegen |
 | P9 | mittel | Die Achsen im Detect-Tab sind fest (±100 m, 0–200 m); die Unit-ID wird ignoriert; es gibt keine Spur und keinen Verlauf | Ziele außerhalb von 100 m fallen aus dem Bild, mehrere Einheiten sind nicht unterscheidbar | offen (T5, T7) |
 | P10 | hoch | Der Read-Tab teilt die 128 Werte in 8 Mikrofone × 16 auf. Tatsächlich enthält jede Nachricht 128 Samples **eines** Mikrofons (`micNr`) für Block `frameNr` 0…11. Die Werte werden als uint32 statt int32 gelesen. | Pegel und Werte sind falsch, negative Samples erscheinen als ~4·10⁹, der Hop wird nicht zusammengesetzt | offen (T4) |
 | P11 | hoch | Bei READ kommen ~3000 Nachrichten/s. Der Reader meldete jedes Frame als Hex-Text, der Inspector baute bei jedem Frame seinen Text neu auf, und der Read-Tab setzt bei jedem Frame seinen Text | Die GUI friert ein, der Speicher wächst (Queues ohne Grenze) | Log-Flut behoben (`verbose=False`, Inspector ersetzt); Read-Tab-Takt und Queue-Grenzen offen (T4) |
-| P12 | mittel | `serial.read()` mit 0,1 s Timeout kann den Rest eines Frames nur teilweise liefern | Meldung „payload_incomplete“ und danach Versatz (P3) | offen (T1) |
+| P12 | mittel | `serial.read()` mit 0,1 s Timeout kann den Rest eines Frames nur teilweise liefern | Meldung „payload_incomplete“ und danach Versatz (P3) | behoben (T1: Bytestrom statt fester Lesegrößen) |
 | P13 | niedrig | Der Inspector zählte unbekannte Ids als „corrupt“. Der Logger schrieb in dasselbe Textfeld, das der Inspector 50-mal pro Sekunde geleert hat. Die TX-Statistik kannte nur die Ids 1–3. | falsche Zähler, Meldungen verschwanden sofort | behoben (Status-Fenster, `update_sent` für alle Ids) |
 | P14 | niedrig | Altbestand im Repository: `Safe/`, `srp_monitor.py` (tkinter, 24-Byte-Frames), `sds_read_usb_receiver_gui.py` (defekter Import), unbenutzte Teile (`STOP_REQUESTED`, `USBPortManager`) | Verwechslungsgefahr beim Weiterentwickeln | offen (T9) |
 | P15 | niedrig | 25 `__pycache__`-Dateien im Repository, keine `requirements.txt`, Tests nur als Skripte gegen COM5 | Build nicht reproduzierbar, keine automatischen Tests | behoben: `.gitignore`, `requirements.txt`, Tests ohne Hardware |
@@ -72,13 +72,38 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 - Fehler erscheinen im Status-Fenster.
 - Verbindung über einen virtuellen seriellen Port (pty): On sendet Simulation und Mode, und ein Detect-Frame erreicht die Anzeige.
 
+## 3a. Umgesetzt: T1–T3 (28.09.2026)
+
+- **T1, Empfang:**
+  - Der `USBReader` liest die verfügbaren Bytes und zerlegt sie mit `SDSParser`.
+  - Der Parser synchronisiert Byte für Byte auf das Magic und prüft die Länge je Id: Detect 32, Read 532, UnitReport und Logger 144, unbekannte Ids 12–1024 Byte.
+  - Er prüft die CRC32. Bei einem Fehler verwirft er nur 1 Byte, damit ein scheinbares Magic in den Nutzdaten keine echten Frames kostet.
+  - Ein Resync erscheint als Warnung im Status-Fenster, Längen- und CRC-Fehler als Fehler.
+- **T2, UnitReport (Id 5):**
+  - Neu ist das Modul `app/usb/messages.py`.
+  - Der Detect-Tab zeigt Unit-ID, Zeit (UTC mit µs oder Laufzeit) und Zeitquelle, Peilung, Paare, Residuum, Pegel und die Bänder mit Frequenz.
+  - Dazu kommt ein Balkendiagramm des akustischen Zustands p_b über 64 Bänder.
+- **T2, Logger (Id 99):** Die Meldungen erscheinen als Zeilen „SDS: …“ im Status-Fenster. Über mehrere Pakete geteilte Zeilen werden wieder zusammengesetzt.
+- **T3, Kommandos:**
+  - Das Bedienfeld hat die neuen Gruppen **Board** (Unit-ID setzen, Id 5; Schalter SRP aus/ein, Id 6) und **Sync** (Temperatur −40…+60 °C oder „aus“ = unbekannt, Knopf „Sync jetzt“).
+  - Sync (Id 7) mit UTC in µs und Temperatur wird gesendet beim Verbinden, jede Minute, bei Änderung der Temperatur und per Knopf.
+  - Beim Verbinden werden Signalquelle, Betriebsart, SRP und Sync gesendet.
+- **Tests (31, ohne Hardware):**
+  - Parser: Resync bei jedem Versatz 1–8, byteweise Zufuhr, CRC-Fehler, falsche Länge, Magic in den Nutzdaten.
+  - UnitReport gegen Bytes, die mit dem Firmware-Code `Output_Interface_130` erzeugt wurden.
+  - Sync-Bytes gleich dem Beispiel der ICD.
+  - GUI-Bedienelemente.
+  - Loopback über pty: Kommandos beim Verbinden; Detect, UnitReport und Logger nach Störbytes.
+
+![Detect mit UnitReport](gui_detect.png)
+
 ## 4. ToDo-Liste
 
 | Nr. | Prio | Aufgabe | Befunde | Aufwand |
 | --- | --- | --- | --- | --- |
-| T1 | hoch | Den Reader auf `SDSParser` umstellen: Byte-Resync auf das Magic, Längengrenzen je Id, CRC prüfen, Zähler je Fehlerart | P3, P4, P5, P12 | klein |
-| T2 | hoch | UnitReport Id 5 parsen: µs-Zeit und Quelle, Paare, Residuum, Bänder mit p_b, Anzeige im Detect-Tab (Balken p_b je Band). Logger Id 99 als INFO ins Status-Fenster. | P6 | mittel |
-| T3 | hoch | Sync Id 7 senden: beim Verbinden und dann jede Minute, UTC in µs und Temperatur aus einem Eingabefeld (später Sensor). Außerdem Unit-ID Id 5 und einen Schalter SRP-Referenz Id 6 ins Bedienfeld. | P7 | klein |
+| T1 | erledigt | Den Reader auf `SDSParser` umstellen: Byte-Resync auf das Magic, Längengrenzen je Id, CRC prüfen, Zähler je Fehlerart | P3, P4, P5, P12 | klein |
+| T2 | erledigt | UnitReport Id 5 parsen: µs-Zeit und Quelle, Paare, Residuum, Bänder mit p_b, Anzeige im Detect-Tab (Balken p_b je Band). Logger Id 99 als INFO ins Status-Fenster. | P6 | mittel |
+| T3 | erledigt | Sync Id 7 senden: beim Verbinden und dann jede Minute, UTC in µs und Temperatur aus einem Eingabefeld (später Sensor). Außerdem Unit-ID Id 5 und einen Schalter SRP-Referenz Id 6 ins Bedienfeld. | P7 | klein |
 | T4 | hoch | Den Read-Tab neu bauen: Hop aus 8 × 12 Blöcken zusammensetzen, int32 lesen, Pegel je Mikrofon in dBFS, Wellenform und Spektrum. Anzeige mit höchstens 10 Hz, Queues begrenzen. | P10, P11 | mittel |
 | T5 | mittel | Azimut-Konvention mit der Firmware festlegen (FSL9 A28: ab Nord). Detect-Plot danach ausrichten, Achsen automatisch skalieren, Verlauf der Ziele. | P8, P9 | klein |
 | T6 | mittel | Einen USB-Abbruch erkennen: Reader meldet den Abbruch, der Schalter geht auf Off, Fehlermeldung | P16 | klein |

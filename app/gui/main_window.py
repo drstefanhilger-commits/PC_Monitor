@@ -1,3 +1,5 @@
+import time
+
 import serial
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QHBoxLayout, QMainWindow, QSplitter, QTabWidget, QWidget
@@ -6,6 +8,7 @@ from app.model.SDSUSBModel import SDSMode, SDSUSBModel
 from app.tabs.tab_calibrate import TabCalibrate
 from app.tabs.tab_detect import TabDetect
 from app.tabs.tab_read import TabRead
+from app.usb.messages import LineAssembler, parse_logger, parse_unit_report
 from app.usb.usb_reader import USBReader
 from app.usb.usb_writer import USBWriter
 from app.widgets.control_panel import ControlPanel
@@ -28,6 +31,7 @@ class MainWindow(QMainWindow):
 
     SERIAL_BAUD = 115200          # USB-CDC: Baudrate ohne Bedeutung
     STATS_EVERY = 10              # Zählerzeile alle 10 Polls (200 ms)
+    SYNC_PERIOD_MS = 60_000       # Sync (UTC + Temperatur) jede Minute, ICD 4.2
 
     def __init__(self):
         super().__init__()
@@ -38,12 +42,16 @@ class MainWindow(QMainWindow):
         self.reader = None
         self.writer = None
         self._poll_count = 0
+        self._log_lines = LineAssembler()
 
         # --- Bedienfeld links ------------------------------------------
         self.controls = ControlPanel()
         self.controls.power_toggled.connect(self.on_power)
         self.controls.simulation_toggled.connect(self.on_simulation)
         self.controls.mode_changed.connect(self.on_mode)
+        self.controls.unit_id_set.connect(self.on_unit_id)
+        self.controls.srp_toggled.connect(self.on_srp)
+        self.controls.sync_requested.connect(self.send_sync)
 
         # --- Tabs, je Betriebsart einer -------------------------------------
         self.tabs = QTabWidget()
@@ -81,6 +89,9 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self.process_queue)
         self.timer.start(20)   # 50 Hz
 
+        self.sync_timer = QTimer()
+        self.sync_timer.timeout.connect(self.send_sync)
+
     # ------------------------------------------------------------
     # Tabs: nur der Tab der gewählten Betriebsart ist sichtbar
     # ------------------------------------------------------------
@@ -112,6 +123,27 @@ class MainWindow(QMainWindow):
         else:
             self.status.log(f"Betriebsart {mode.name}; wird beim Verbinden gesendet")
 
+    def on_unit_id(self, unit_id: int):
+        if self.writer:
+            self.writer.send_unit_id(unit_id)
+        else:
+            self.status.log("Unit-ID: nicht verbunden", "WARN")
+
+    def on_srp(self, on: bool):
+        if self.writer:
+            self.writer.send_srp(on)
+        else:
+            self.status.log(f"SRP {'ein' if on else 'aus'}; wird beim Verbinden gesendet")
+
+    def send_sync(self):
+        """Sync (Id 7): aktuelle UTC in µs und die eingestellte Temperatur (oder unbekannt)."""
+        if not self.writer:
+            return
+        temp = self.controls.temperature()
+        self.writer.send_sync(time.time_ns() // 1000, temp)
+        t = "–" if temp is None else f"{temp:.1f} °C"
+        self.controls.set_sync_text(f"{time.strftime('%H:%M:%S')}, {t}")
+
     # ------------------------------------------------------------
     # USB
     # ------------------------------------------------------------
@@ -140,11 +172,15 @@ class MainWindow(QMainWindow):
         self.controls.set_connected(True, f"verbunden: {port}")
         self.status.log(f"Verbunden mit {port}")
 
-        # Board auf den Stand der Schalter bringen
+        # Board auf den Stand der Schalter bringen, Zeit und Temperatur senden
         self.writer.send_simulation(self.controls.simulation())
         self.writer.send_mode(int(self.controls.mode()))
+        self.writer.send_srp(self.controls.srp())
+        self.send_sync()
+        self.sync_timer.start(self.SYNC_PERIOD_MS)
 
     def disconnect_usb(self):
+        self.sync_timer.stop()
         for t in (self.reader, self.writer):
             if t:
                 t.stop()
@@ -179,6 +215,25 @@ class MainWindow(QMainWindow):
             self.model.stats_read += 1
             self.model.update_frame(msg_id, frame, "READ")
 
+        while not self.model.unit_queue.empty():
+            msg_id, frame = self.model.unit_queue.get()
+            self.model.stats_total += 1
+            try:
+                r = parse_unit_report(frame)
+            except ValueError as e:
+                self.model.stats_rejected += 1
+                self.status.log(f"UnitReport: {e}", "ERROR")
+                continue
+            self.model.stats_unit += 1
+            self.detect_tab.update_unit_report(r)
+
+        while not self.model.log_queue.empty():
+            msg_id, frame = self.model.log_queue.get()
+            self.model.stats_total += 1
+            self.model.stats_log += 1
+            for line in self._log_lines.push(parse_logger(frame)):
+                self.status.log(f"SDS: {line}")
+
         while not self.model.inspect_queue.empty():
             kind, raw, reason = self.model.inspect_queue.get()
             self.model.update_inspector(kind, raw, reason)
@@ -190,7 +245,10 @@ class MainWindow(QMainWindow):
                 self.model.stats_unknown += 1
             else:
                 self.model.stats_corrupt += 1
-            self.status.log(f"{reason} ({len(raw)} Byte): {raw[:32].hex(' ').upper()}", "ERROR")
+            if raw:
+                self.status.log(f"{reason} ({len(raw)} Byte): {raw[:32].hex(' ').upper()}", "ERROR")
+            else:
+                self.status.log(f"Datenstrom: {reason}", "WARN")      # Resync auf das Magic
 
         self._poll_count += 1
         if self._poll_count % self.STATS_EVERY == 0:

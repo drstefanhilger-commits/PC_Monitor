@@ -55,5 +55,6 @@ class StatusPanel(QWidget):
     def update_stats(self):
         m = self.model
         self.stats_label.setText(
-            f"RX {m.stats_total}  (Detect {m.stats_detect}, Read {m.stats_read})   "
+            f"RX {m.stats_total}  (Detect {m.stats_detect}, Unit {m.stats_unit}, Read {m.stats_read}, "
+            f"Log {m.stats_log})   "
             f"Fehler {m.stats_rejected}   TX {m.stats_sent_total}")

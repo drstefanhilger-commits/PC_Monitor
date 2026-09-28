@@ -17,7 +17,9 @@ python -m app.main
 
 - **Links:** Port wählen, Schalter **On** verbindet. Beim Verbinden werden die Signalquelle (Real/Simulation) und die Betriebsart gesendet.
 - **Drehschalter Detect – Read – Calibrate:** wählt die Betriebsart des Boards und den angezeigten Tab.
-- **Unten:** Status- und Fehlermeldungen mit Zählern RX/TX/Fehler.
+- **Board:** Unit-ID setzen, SRP-Referenzscan aus/ein.
+- **Sync:** UTC und Lufttemperatur. Wird beim Verbinden, jede Minute und bei Änderung der Temperatur gesendet; ohne Haken bei „Temp.“ gilt die Temperatur als unbekannt.
+- **Unten:** Status- und Fehlermeldungen mit Zählern RX/TX/Fehler, dazu die Meldungen des Boards (Logger) als „SDS: …“.
 
 ![GUI](docs/gui_detect.png)
 
@@ -25,7 +27,7 @@ python -m app.main
 
 ```
 pip install pytest
-python -m pytest tests/test_protocol.py tests/test_gui.py tests/test_loopback.py
+python -m pytest tests
 ```
 
 `test_loopback.py` benutzt einen virtuellen seriellen Port (pty) und läuft nur unter Linux/macOS.

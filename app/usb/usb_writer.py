@@ -53,3 +53,13 @@ class USBWriter(QThread):
     def send_simulation(self, on: bool):
         self.send_packet(3, self.model.build_simulation_message(1 if on else 0),
                          "Simulation" if on else "Real")
+
+    def send_unit_id(self, unit_id: int):
+        self.send_packet(5, self.model.build_unit_id_message(unit_id), f"Unit-ID {unit_id}")
+
+    def send_srp(self, on: bool):
+        self.send_packet(6, self.model.build_srp_message(on), f"SRP {'ein' if on else 'aus'}")
+
+    def send_sync(self, utc_us: int, temp_c=None):
+        t = "unbekannt" if temp_c is None else f"{temp_c:.2f} °C"
+        self.send_packet(7, self.model.build_sync_message(utc_us, temp_c), f"Sync ({t})")

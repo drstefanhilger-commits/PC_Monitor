@@ -50,6 +50,8 @@ class SDSUSBModel:
         # ------------------------------------------------------------
         self.detect_queue = Queue()
         self.read_queue = Queue()
+        self.unit_queue = Queue()           # UnitReport (Id 5)
+        self.log_queue = Queue()            # Logger (Id 99)
         self.inspect_queue = Queue()
 
         # ------------------------------------------------------------
@@ -71,6 +73,8 @@ class SDSUSBModel:
         self.stats_total = 0
         self.stats_detect = 0
         self.stats_read = 0
+        self.stats_unit = 0
+        self.stats_log = 0
         self.stats_rejected = 0
         self.stats_unknown = 0
         self.stats_corrupt = 0
@@ -114,6 +118,9 @@ class SDSUSBModel:
             self.read_queue.get_nowait()
         while not self.inspect_queue.empty():
             self.inspect_queue.get_nowait()
+        for q in (self.unit_queue, self.log_queue):
+            while not q.empty():
+                q.get_nowait()
 
         self.last_msg_id = None
         self.last_frame = None
@@ -201,3 +208,28 @@ class SDSUSBModel:
     def build_simulation_message(self, sim_state: int) -> bytes:
         # Simulation: 0=Real, 1=Simulated
         return self._build_header_and_payload(SDSCommand.SIMULATION, sim_state)
+
+    def build_unit_id_message(self, unit_id: int) -> bytes:
+        # Unit-ID: untere 16 Bit werden genutzt
+        return self._build_header_and_payload(SDSCommand.UNIT_ID, unit_id & 0xFFFF)
+
+    def build_srp_message(self, on: bool) -> bytes:
+        # SRP-Referenzscan: 0 = aus, 1 = ein
+        return self._build_header_and_payload(SDSCommand.SRP_REFERENCE, 1 if on else 0)
+
+    TEMP_UNKNOWN = 0x8000
+
+    def build_sync_message(self, utc_us: int, temp_c=None) -> bytes:
+        """
+        Sync (Id 7, 24 Byte, ICD 4.2): UTC in µs (u64 BE, 0 = keine Zeit) und Lufttemperatur
+        in 0,01 °C (i16 BE, 0x8000 = unbekannt; gültig −40 … +60 °C), 2 Byte reserviert, CRC32 BE.
+        """
+        if temp_c is None:
+            temp = self.TEMP_UNKNOWN
+        else:
+            if not -40.0 <= temp_c <= 60.0:
+                raise ValueError(f"Temperatur {temp_c} °C außerhalb −40 … +60 °C")
+            temp = round(temp_c * 100) & 0xFFFF
+        body = (b"\xDE\xAD\xBE\xEF" + int(SDSCommand.SYNC).to_bytes(1, "big") + (24).to_bytes(3, "big")
+                + int(utc_us).to_bytes(8, "big") + temp.to_bytes(2, "big") + b"\x00\x00")
+        return body + (zlib.crc32(body) & 0xFFFFFFFF).to_bytes(4, "big")
