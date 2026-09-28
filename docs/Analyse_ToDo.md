@@ -223,6 +223,24 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
   - Zurückgestellt: Unit-ID speichern und beim Verbinden senden, die vom Board gemeldete ID im Bedienfeld anzeigen.
   - Unit-ID (Id 5) und SRP (Id 6) blieben am Board ohne Wirkung. Der PC sendet die Bytes richtig (Prüfung über pty). Ursache in der Firmware: Bei laufendem Feedback (Id 8, bis 31/s) fasst Windows die Schreibvorgänge zu einem USB-Paket zusammen, und die Firmware wertete nur das erste Kommando je Paket aus (SDS_110 Befund 32). Behoben in SDS_110 mit `CommandAssembler`.
 
+## 3g. Umgesetzt: Standort der Einheit (28.09.2026)
+
+![Standort](gui_position.png)
+
+- **Anlass:** Das SDS braucht Breite, Länge und Höhe. In der Hardware-Version 2 liefert ein GPS-Modul diese Daten beim Start, bis dahin der PC-Monitor.
+- **Kommando Id 10 (28 Byte):**
+  - Breite und Länge als i32 in 1e-7° (≈ 1 cm), Höhe als i32 in mm über NN, Flags (Bit 0 = gültig, 0 = löschen).
+  - `SDSUSBModel.build_position_message`, dieselben Bytes wie im SDS_110-Test `t_geo_position`.
+- **Nachricht Id 6 (144 Byte):** Das Board meldet den verwendeten Standort mit Quelle (keine/PC/GNSS), sofort nach Id 10 und jede Sekunde. `messages.parse_position`, Anzeige „Board: …“ im Bedienfeld; orange, wenn er fehlt oder nicht zur Eingabe passt.
+- **Vorrang:** Eine gültige GNSS-Position überschreibt Id 10 nicht (Firmware).
+- **Bedienfeld „Standort (WGS84)“:**
+  - Eingabe `Breite, Länge[, Höhe]`, geprüft in `app/geo.py`.
+  - Gespeichert (QSettings), bei jedem Verbinden gesendet.
+  - Das Bedienfeld ist jetzt scrollbar, damit es auch auf kleinen Bildschirmen passt.
+- **CSV-Export:** zusätzlich `breite_deg`, `laenge_deg` je Spurpunkt. Umrechnung von Ost/Nord über die Tangentialebene mit den Krümmungsradien des WGS84-Ellipsoids. Ursprung ist der vom Board gemeldete Standort, sonst der gespeicherte.
+- **Tests:** `test_position.py` (Eingabe, Bytes, Id 6, Umrechnung gegen Haversine, Hauptfenster, CSV); `test_loopback.py` prüft Id 10 beim Verbinden.
+- **Offen:** relative Positionen mehrerer Einheiten und deren Nutzung in der Lokalisation (T7).
+
 ## 4. ToDo-Liste
 
 | Nr. | Prio | Aufgabe | Befunde | Aufwand |

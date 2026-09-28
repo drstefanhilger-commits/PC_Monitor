@@ -82,6 +82,34 @@ def parse_unit_report(frame: bytes) -> UnitReport:
     return UnitReport(ts, unit, time_us, src, bearing, residual, pairs, level, bands, probs)
 
 
+@dataclass
+class BoardPosition:
+    """Nachricht Id 6 (ICD 5.5): Standort, den das Board verwendet."""
+    unit: int
+    source: int                 # 0 keine, 1 PC, 2 GNSS
+    valid: bool
+    lat_deg: float
+    lon_deg: float
+    alt_m: float
+
+    @property
+    def source_name(self) -> str:
+        from app.geo import SOURCE
+        return SOURCE.get(self.source, f"? ({self.source})")
+
+    def text(self) -> str:
+        if not self.valid:
+            return "kein Standort"
+        return f"{self.lat_deg:.7f}, {self.lon_deg:.7f}, {self.alt_m:.1f} m ({self.source_name})"
+
+
+def parse_position(frame: bytes) -> BoardPosition:
+    if len(frame) != 144:
+        raise ValueError(f"Standort: Länge {len(frame)} statt 144")
+    unit, src, flags, lat, lon, alt = struct.unpack_from("<HBBiii", frame, 12)
+    return BoardPosition(unit, src, bool(flags & 1), lat * 1e-7, lon * 1e-7, alt / 1000.0)
+
+
 def parse_logger(frame: bytes) -> str:
     """Nutzlast (128 Byte ASCII, mit Nullbytes aufgefüllt) als Text."""
     return frame[12:140].split(b"\0", 1)[0].decode("ascii", errors="replace")

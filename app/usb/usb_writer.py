@@ -73,6 +73,10 @@ class USBWriter(QThread):
         self.send_packet(9, self.model.build_azimuth_offset_message(offset_deg),
                          f"Nordabgleich {offset_deg:+.2f}°")
 
+    def send_position(self, pos=None):
+        name = "Standort löschen" if pos is None else f"Standort {pos.text()}"
+        self.send_packet(10, self.model.build_position_message(pos), name)
+
     def send_feedback(self, ref_state=None, azimuth_deg=None, distance_m=None):
         """Feedback der Tracking-Einheit (Id 8); ref_state None = zurücksetzen."""
         from app.tracking.feedback import build_feedback

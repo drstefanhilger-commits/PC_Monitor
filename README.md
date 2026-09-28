@@ -33,12 +33,19 @@ python -m app.main
   - Betriebsart
   - SRP-Referenz
   - Nordabgleich
+  - Standort
   - Sync
 - **Drehschalter Detect – Read – Calibrate:** wählt die Betriebsart des Boards und den angezeigten Tab.
 - **Board:** Unit-ID setzen, SRP-Referenzscan aus/ein.
 - **Sync:** sendet UTC und Lufttemperatur.
   - Gesendet wird beim Verbinden, jede Minute und wenn sich die Temperatur ändert.
   - Ohne Haken bei „Temp.“ gilt die Temperatur als unbekannt.
+- **Standort (WGS84):** Breite, Länge und Höhe über NN der Einheit, zum Beispiel `48.137154, 11.57549, 519.5`.
+  - Breite und Länge lassen sich aus Google Maps kopieren. Ohne Höhe gilt 0 m.
+  - „Senden“ oder Enter sendet den Standort (Id 10) und speichert ihn; beim Verbinden wird er erneut gesendet.
+  - „Board: …“ zeigt, was das Board meldet (Id 6, jede Sekunde), mit der Quelle PC oder GNSS. Orange: kein Standort oder ein anderer als der eingegebene.
+  - In der Hardware-Version 2 setzt ein GPS-Modul den Standort; eine gültige GNSS-Position überschreibt der PC nicht.
+  - Der CSV-Export enthält damit Breite und Länge jedes Spurpunkts.
 - **Tracking:** Die Tracking-Einheit bildet aus den Reports eine Spur. Der Lageplan zeigt die letzten 10 Punkte grün; der CSV-Export enthält alle.
   - „Feedback“ sendet ŝ und die Vorhersage an das Board (Id 8).
   - „Trajektorie als CSV …“ speichert die Spuren.
@@ -94,6 +101,7 @@ In `tools/`, nicht Teil der Tests:
 | `app/model/SDSUSBModel.py` | Queues, Zähler, Kommandos PC → SDS |
 | `app/tracking/` | Tracking-Einheit (Kalman, Gate, ŝ), Feedback Id 8 |
 | `app/calibration.py` | Nordabgleich: zirkulares Mittel, Offset |
+| `app/geo.py` | Standort: Eingabe prüfen, Kodierung, Ost/Nord → Breite/Länge |
 
 ## Dokumente
 
