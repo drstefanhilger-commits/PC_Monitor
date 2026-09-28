@@ -1,6 +1,6 @@
 """
 Verbindungsweg über einen virtuellen seriellen Port (pty, nur Linux/macOS), ohne Board:
-Schalter On -> Board erhält Simulation + Mode; ein Detect-Frame des "Boards" erreicht den Detect-Tab.
+Schalter On -> Board erhält Simulation, Mode, SRP und Sync; Detect, UnitReport und Logger des "Boards"\nkommen nach Störbytes (Resync) an.
 Aufruf: QT_QPA_PLATFORM=offscreen python -m pytest tests/test_loopback.py
 """
 import os
@@ -50,15 +50,26 @@ def test_power_on_sends_state_and_receives_detect():
         w.controls.mode_dial.set_mode(SDSMode.READ, emit=False)
         w.controls.sw_power.click()
         assert w.controls.sw_power.isChecked()
-        cmds = read_exact(master, 32)
+        cmds = read_exact(master, 16 * 3 + 24)
         assert cmds[:12] == bytes.fromhex("DEADBEEF03000010" "00000001")      # Simulation
         assert cmds[16:28] == bytes.fromhex("DEADBEEF02000010" "00000003")    # READ = 3
+        assert cmds[32:44] == bytes.fromhex("DEADBEEF06000010" "00000000")    # SRP aus
+        sync = cmds[48:72]
+        assert sync[:8] == bytes.fromhex("DEADBEEF07000018")                  # Sync, 24 Byte
+        assert abs(int.from_bytes(sync[8:16], "big") / 1e6 - time.time()) < 5
+        assert sync[16:18] == (2000).to_bytes(2, "big")                       # 20,0 °C
+        assert sync[20:] == (zlib.crc32(sync[:20]) & 0xFFFFFFFF).to_bytes(4, "big")
 
-        os.write(master, detect_frame())
+        # Board sendet Störbytes + Detect + UnitReport + Logger: alles kommt an, Resync wird gemeldet
+        from tests import sds_frames as F
+        os.write(master, b"\x00\x11\x22" + detect_frame() + F.message(5, F.UNIT_REPORT_PAYLOAD_FW)
+                 + F.message(99, b"hallo\n"))
         t0 = time.time()
-        while w.model.stats_detect == 0 and time.time() - t0 < 2:
+        while (w.model.stats_detect == 0 or w.model.stats_unit == 0 or w.model.stats_log == 0) \
+                and time.time() - t0 < 2:
             app.processEvents(); w.process_queue(); time.sleep(0.02)
-        assert w.model.stats_detect == 1
+        assert (w.model.stats_detect, w.model.stats_unit, w.model.stats_log) == (1, 1, 1)
+        assert "resync 3 Byte" in w.status.text.toPlainText()
 
         w.controls.sw_power.click()
         assert not w.controls.sw_power.isChecked() and w.reader is None

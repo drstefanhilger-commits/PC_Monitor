@@ -23,6 +23,15 @@ class FakeWriter:
     def send_simulation(self, on):
         self.sent.append(("sim", on))
 
+    def send_srp(self, on):
+        self.sent.append(("srp", on))
+
+    def send_unit_id(self, uid):
+        self.sent.append(("unit", uid))
+
+    def send_sync(self, utc_us, temp):
+        self.sent.append(("sync", utc_us, temp))
+
 
 @pytest.fixture(scope="module")
 def app():
@@ -93,3 +102,33 @@ def test_errors_go_to_status(win):
     win.process_queue()
     assert "magic_fail" in win.status.text.toPlainText()
     assert win.model.stats_rejected == 1
+
+
+def test_srp_unit_id_sync_controls(win):
+    import time
+    fw = FakeWriter()
+    win.writer = fw
+    win.controls.sw_srp.click()
+    assert fw.sent[-1] == ("srp", True)
+    win.controls.unit_spin.setValue(0x2A)
+    win.controls.btn_unit.click()
+    assert fw.sent[-1] == ("unit", 0x2A)
+    win.controls.temp_spin.setValue(-12.5)
+    win.controls.btn_sync.click()
+    kind, utc, temp = fw.sent[-1]
+    assert kind == "sync" and temp == -12.5 and abs(utc / 1e6 - time.time()) < 5
+    win.controls.chk_temp.setChecked(False)            # Temperatur aus -> sofort Sync mit "unbekannt"
+    assert fw.sent[-1][0] == "sync" and fw.sent[-1][2] is None
+    win.writer = None
+
+
+def test_unit_report_and_logger_display(win):
+    from tests import sds_frames as F
+    win.model.unit_queue.put((5, F.message(5, F.UNIT_REPORT_PAYLOAD_FW)))
+    win.model.log_queue.put((99, F.message(99, b"124: Modell ok\n")))
+    win.process_queue()
+    assert "0x1234" in win.detect_tab.unit_label.text()
+    assert "2026-09-28 12:00:00.155456 UTC" in win.detect_tab.unit_label.text()
+    assert "Paare 27" in win.detect_tab.unit_label.text()
+    assert "SDS: 124: Modell ok" in win.status.text.toPlainText()
+    assert win.model.stats_unit == 1 and win.model.stats_log == 1 and win.model.stats_rejected == 0

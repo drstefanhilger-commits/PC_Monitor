@@ -1,7 +1,9 @@
 import struct
 import numpy as np
 import pyqtgraph as pg
-from PyQt6.QtWidgets import QWidget, QVBoxLayout
+from PyQt6.QtWidgets import QLabel, QWidget, QVBoxLayout
+
+from app.usb.messages import BAND_LO_HZ, BAND_WIDTH_HZ, N_BANDS, UnitReport
 
 class TabDetect(QWidget):
     def __init__(self):
@@ -59,6 +61,21 @@ class TabDetect(QWidget):
 
         layout.addWidget(self.plot_conf)
 
+        # UnitReport (Id 5): Zeit, Qualität, akustischer Zustand p_b je Band
+        self.unit_label = QLabel("UnitReport: –")
+        layout.addWidget(self.unit_label)
+        self.plot_state = pg.PlotWidget()
+        self.plot_state.setYRange(0, 1)
+        self.plot_state.setXRange(-0.5, N_BANDS - 0.5)
+        pi = self.plot_state.getPlotItem()
+        pi.setLabel('bottom', 'Band b (Beginn 80 Hz + b · 62,5 Hz)')
+        pi.setLabel('left', 'p_b')
+        pi.setTitle('Akustischer Zustand (selektierte Bänder)')
+        self.state_bars = pg.BarGraphItem(x=np.arange(N_BANDS), height=np.zeros(N_BANDS), width=0.8, brush='c')
+        self.plot_state.addItem(self.state_bars)
+        layout.addWidget(self.plot_state)
+        self.last_unit_report = None
+
     def update_frame(self, frame: bytes):
         timestamp = struct.unpack_from("<I", frame, 8)[0]
         mic      = struct.unpack_from("<I", frame, 12)[0]
@@ -87,4 +104,14 @@ class TabDetect(QWidget):
             self.conf_history.pop(0)
 
         self.curve_conf.setData(self.conf_history)
-        
+
+    def update_unit_report(self, r: UnitReport):
+        self.last_unit_report = r
+        bands = ", ".join(f"{b} ({BAND_LO_HZ + b * BAND_WIDTH_HZ:.0f} Hz)" for b in r.bands[:6])
+        if len(r.bands) > 6:
+            bands += f", … ({len(r.bands)})"
+        self.unit_label.setText(
+            f"UnitReport  Unit 0x{r.unit:04X}   {r.time_text()}  [{r.source_name}]\n"
+            f"Peilung {r.bearing_deg:.1f}°   Paare {r.pairs}   Residuum {r.residual_s * 1e6:.1f} µs   "
+            f"Pegel {r.level:.3g}   Bänder: {bands or '–'}")
+        self.state_bars.setOpts(height=np.array(r.state_vector()))
