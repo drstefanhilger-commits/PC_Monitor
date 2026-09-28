@@ -44,7 +44,7 @@ Status: **behoben** = in diesem Stand umgesetzt und getestet, **offen** = in der
 | P13 | niedrig | Der Inspector zählte unbekannte Ids als „corrupt“. Der Logger schrieb in dasselbe Textfeld, das der Inspector 50-mal pro Sekunde geleert hat. Die TX-Statistik kannte nur die Ids 1–3. | falsche Zähler, Meldungen verschwanden sofort | behoben (Status-Fenster, `update_sent` für alle Ids) |
 | P14 | niedrig | Altbestand im Repository: `Safe/`, `srp_monitor.py` (tkinter, 24-Byte-Frames), `sds_read_usb_receiver_gui.py` (defekter Import), unbenutzte Teile (`STOP_REQUESTED`, `USBPortManager`) | Verwechslungsgefahr beim Weiterentwickeln | offen (T9) |
 | P15 | niedrig | 25 `__pycache__`-Dateien im Repository, keine `requirements.txt`, Tests nur als Skripte gegen COM5 | Build nicht reproduzierbar, keine automatischen Tests | behoben: `.gitignore`, `requirements.txt`, Tests ohne Hardware |
-| P16 | mittel | Wird USB getrennt, fängt der Reader die Ausnahme und versucht es endlos erneut; die GUI erfährt davon nichts | Die Anzeige bleibt „verbunden“ | offen (T6) |
+| P16 | mittel | Wird USB getrennt, fängt der Reader die Ausnahme und versucht es endlos erneut; die GUI erfährt davon nichts | Die Anzeige bleibt „verbunden“ | behoben (T6) |
 | P17 | hoch | Die PC-Seite des Patents fehlt: Inter-Unit-Korrelation und Lokalisation (Teile von 126, 128), Candidate Report (130), Tracking-Einheit (150) und Feedback (Id 8) | FSL9 §6–10 und die Ansprüche 6–12 sind nicht umgesetzt (`Traceability_FSL9_PC.md`) | offen (T7, T8) |
 | P18 | niedrig | Die Firmware hat in CALIBRATE keine Funktion | Der Calibrate-Tab bleibt ohne Daten | offen (T10) |
 | P19 | mittel | Es kann nur ein COM-Port bzw. eine Einheit verbunden werden | FSL9 verlangt N ≥ 2 Einheiten | offen (T7) |
@@ -133,6 +133,22 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 - **Verläufe:** Distanz (automatische Skala), Azimut und Konfidenz über die letzten 200 Reports; groß angezeigt werden Azimut, Distanz und Konfidenz des letzten Reports.
 - **Tests:** `test_detect.py` prüft die Umrechnung für N/O/S/W/NO, die Wahl des Radius und den Punkt im Osten bei 90°.
 
+## 3d. Umgesetzt: USB-Abbruch (T6, 28.09.2026)
+
+- **Reader:** Eine `SerialException` oder `OSError` beim Lesen (Kabel gezogen, Board zurückgesetzt) meldet `connection_lost` genau einmal, danach endet der Thread. Andere Lesefehler zählen; nach 20 in Folge gilt die Verbindung ebenfalls als verloren.
+- **Writer:** Schreibfehler der Schnittstelle melden `connection_lost`.
+- **Hauptfenster:**
+  - Es trennt sauber: Threads beendet, Port geschlossen, Sync-Timer gestoppt.
+  - Der Schalter springt auf Off, und „Verbindung verloren“ steht im Bedienfeld.
+  - Im Status-Fenster steht die Fehlermeldung mit Port und Grund.
+  - Die Portliste wird neu eingelesen, sodass man nach dem Wiedereinstecken mit On neu verbinden kann.
+- **Absichtliches Trennen** (Schalter Off, Fenster schließen) meldet keinen Abbruch.
+- **Tests (`test_connection_lost.py`):**
+  - Reader und Writer mit einer Schnittstelle, die wie ein gezogenes Kabel Fehler wirft.
+  - Absichtliches Trennen.
+  - Abbruch am virtuellen Port: Die Gegenseite wird geschlossen, der Schalter geht auf Off.
+- **Nebenbei:** Die Tests teilen sich jetzt eine `QApplication` (`tests/conftest.py`); eine zwischendurch freigegebene `QApplication` ließ spätere Tests abstürzen.
+
 ## 4. ToDo-Liste
 
 | Nr. | Prio | Aufgabe | Befunde | Aufwand |
@@ -142,7 +158,7 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 | T3 | erledigt | Sync Id 7 senden: beim Verbinden und dann jede Minute, UTC in µs und Temperatur aus einem Eingabefeld (später Sensor). Außerdem Unit-ID Id 5 und einen Schalter SRP-Referenz Id 6 ins Bedienfeld. | P7 | klein |
 | T4 | erledigt | Den Read-Tab neu bauen: Hop aus 8 × 12 Blöcken zusammensetzen, int32 lesen, Pegel je Mikrofon in dBFS, Wellenform und Spektrum. Anzeige mit höchstens 10 Hz, Queues begrenzen. | P10, P11 | mittel |
 | T5 | erledigt | Azimut-Konvention mit der Firmware festlegen (FSL9 A28: ab Nord). Detect-Plot danach ausrichten, Achsen automatisch skalieren, Verlauf der Ziele. | P8, P9 | klein |
-| T6 | mittel | Einen USB-Abbruch erkennen: Reader meldet den Abbruch, der Schalter geht auf Off, Fehlermeldung | P16 | klein |
+| T6 | erledigt | Einen USB-Abbruch erkennen: Reader meldet den Abbruch, der Schalter geht auf Off, Fehlermeldung | P16 | klein |
 | T7 | hoch | Mehrere Einheiten: je Einheit ein Port bzw. eine Unit-ID, Positionen konfigurierbar. PC-Teil von 126 und 128 (Multilateration N ≥ 3, gemeinsamer Modus N = 2) und Candidate Report (130). Dafür muss die Firmware Spektren oder TDOA je Einheit liefern (Architektur klären). | P17, P19 | groß |
 | T8 | hoch | Tracking-Einheit (150) als eigenes Modul: ŝ mit α = 0,2, Kalman-Filter mit konstanter Geschwindigkeit, Kosinus > 0,7, χ²-Gate, Bestätigung nach 3 Reports, Ende nach 2 s, Ausgabe der Trajektorie, Feedback Id 8 an das Board | P17 | groß |
 | T9 | niedrig | Altbestand entfernen oder nach `legacy/` verschieben; Hardware-Testskripte nach `tools/` | P14 | klein |
