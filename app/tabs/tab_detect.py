@@ -55,6 +55,10 @@ class TabDetect(QWidget):
                                      symbolBrush=pg.mkBrush(255, 120, 120, 90), symbolPen=None)
         self.line = self.polar.plot(pen=pg.mkPen('r', width=2))
         self.point = self.polar.plot(pen=None, symbol='o', symbolSize=10, symbolBrush='r')
+        # Spur der Tracking-Einheit: bestätigte Trajektorie (grün), Vorhersage (Ring)
+        self.track_line = self.polar.plot(pen=pg.mkPen((0, 220, 120), width=3))
+        self.track_pred = self.polar.plot(pen=None, symbol='o', symbolSize=14, symbolBrush=None,
+                                          symbolPen=pg.mkPen((0, 220, 120), width=2))
         self.trail_xy = deque(maxlen=TRAIL)
         self._set_range(RANGES_M[1])
         top.addWidget(self.polar, 3)
@@ -64,6 +68,9 @@ class TabDetect(QWidget):
         self.pos_label = QLabel("Azimut –   Distanz –")
         self.pos_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
         right.addWidget(self.pos_label)
+        self.track_label = QLabel("Spur: keine")
+        self.track_label.setStyleSheet("font-weight: bold; color: gray;")
+        right.addWidget(self.track_label)
         self.dist_plot = pg.PlotWidget()
         self.dist_plot.showGrid(x=True, y=True)
         self.dist_curve = self.dist_plot.plot(pen='r')
@@ -164,6 +171,35 @@ class TabDetect(QWidget):
         self.az_curve.setData(list(self.az_history))
         self.curve_conf.setData(list(self.conf_history))
         self.pos_label.setText(f"Azimut {azi % 360.0:5.1f}°   Distanz {dist:6.1f} m   Konfidenz {conf:.2f}")
+
+    def update_track(self, tracker, decision=None):
+        """Spur der Tracking-Einheit anzeigen (Zustand, Geschwindigkeit, Gate-Werte)."""
+        t = tracker.track
+        if t is None:
+            self.track_line.setData([], [])
+            self.track_pred.setData([], [])
+            self.track_label.setText(f"Spur: keine   (beendet: {len(tracker.finished)})")
+            self.track_label.setStyleSheet("font-weight: bold; color: gray;")
+            return
+        pts = t.trajectory
+        if pts:
+            self.track_line.setData([p.x for p in pts], [p.y for p in pts])
+        else:
+            self.track_line.setData([], [])
+        p = tracker.predicted()
+        self.track_pred.setData([p.x], [p.y])
+        gate = ""
+        if decision is not None:
+            gate = f"   σ {decision.similarity:.2f}  d² {decision.mahalanobis2:.1f}"
+            if not decision.accepted:
+                gate += f"  verworfen ({decision.reason})"
+        if t.confirmed:
+            self.track_label.setText(
+                f"Spur: bestätigt · {len(pts)} Punkte · {p.speed_ms:.1f} m/s · Kurs {p.course_deg:.0f}°{gate}")
+            self.track_label.setStyleSheet("font-weight: bold; color: #2e7d32;")
+        else:
+            self.track_label.setText(f"Spur: vorläufig ({t.hits}/3){gate}")
+            self.track_label.setStyleSheet("font-weight: bold; color: #ef6c00;")
 
     def update_unit_report(self, r: UnitReport):
         self.last_unit_report = r

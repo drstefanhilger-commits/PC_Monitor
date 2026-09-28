@@ -149,6 +149,40 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
   - Abbruch am virtuellen Port: Die Gegenseite wird geschlossen, der Schalter geht auf Off.
 - **Nebenbei:** Die Tests teilen sich jetzt eine `QApplication` (`tests/conftest.py`); eine zwischendurch freigegebene `QApplication` ließ spätere Tests abstürzen.
 
+## 3e. Umgesetzt: Tracking-Einheit (T8, 28.09.2026)
+
+![Tracking](gui_tracking.png)
+
+- **Modul `app/tracking/tracker.py`** (ohne Qt, Komponente B, FSL9 §8–9):
+  - Candidate Reports mit φ, r, t und s (p_b über 64 Bänder).
+  - Referenzzustand ŝ mit α = 0,2.
+  - Kalman-Filter mit konstanter Geschwindigkeit in (Ost, Nord).
+  - Gate: Kosinus > 0,7 und Mahalanobis² < 9,21.
+  - Übernahme nur bei beiden Kriterien.
+  - Spur bestätigt nach 3 aufeinanderfolgenden Reports, Ende nach 2 s ohne Übernahme.
+- **Candidate Report aus einer Einheit:** φ, t und s kommen aus dem UnitReport (Id 5), r aus dem Detect-Frame (Id 1, Pegelmodell) mit demselben ms-Zeitstempel.
+- **Annahmen** (als Konstanten einstellbar):
+  - σ_φ = 3° und σ_r = 30 % (mindestens 5 m); das Pegelmodell ist grob.
+  - Beschleunigungsrauschen 3 m/s².
+  - Anfangsunsicherheit der Geschwindigkeit 15 m/s.
+- **Feedback `app/tracking/feedback.py`, Id 8 (§10):**
+  - Nach jeder Übernahme in die bestätigte Spur werden ŝ und die Vorhersage für die nächsten 32 ms gesendet, bei Spurende ein Zurücksetzen.
+  - Schalter „Feedback“ im Bedienfeld.
+  - Die Firmware empfängt Id 8, wendet ŝ an und setzt nach 2 s ohne Feedback zurück (SDS_110 `t_feedback`).
+- **Anzeige:**
+  - Spur im Lageplan (grün, Vorhersage als Ring).
+  - Zeile „Spur: vorläufig/bestätigt · Punkte · m/s · Kurs · σ · d²“, dazu der Grund, wenn ein Report verworfen wurde.
+  - Meldungen „Spur bestätigt/beendet“ im Status-Fenster.
+- **Export:** Knopf „Trajektorie als CSV …“ (Spur, Zeit, Ost, Nord, Geschwindigkeit, Azimut, Distanz, Kurs).
+- **Tests:**
+  - `test_tracker.py`: Bestätigung, Geschwindigkeit und Kurs, beide Gates, Neubeginn, Ende nach 2 s, ŝ, Feedback-Bytes.
+  - `test_tracking_gui.py`: Kette über die GUI mit Feedback, Störquelle, Ablauf und CSV.
+  - Die Feedback-Bytes des PC dekodiert auch der Firmware-Test.
+- **Offen:**
+  - laufende Ausgabe der Trajektorie an ein externes System (162);
+  - mehrere Spuren gleichzeitig;
+  - die Vorhersage in der Firmware für das TDOA-Suchfenster nutzen (A34).
+
 ## 4. ToDo-Liste
 
 | Nr. | Prio | Aufgabe | Befunde | Aufwand |
@@ -160,7 +194,7 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 | T5 | erledigt | Azimut-Konvention mit der Firmware festlegen (FSL9 A28: ab Nord). Detect-Plot danach ausrichten, Achsen automatisch skalieren, Verlauf der Ziele. | P8, P9 | klein |
 | T6 | erledigt | Einen USB-Abbruch erkennen: Reader meldet den Abbruch, der Schalter geht auf Off, Fehlermeldung | P16 | klein |
 | T7 | hoch | Mehrere Einheiten: je Einheit ein Port bzw. eine Unit-ID, Positionen konfigurierbar. PC-Teil von 126 und 128 (Multilateration N ≥ 3, gemeinsamer Modus N = 2) und Candidate Report (130). Dafür muss die Firmware Spektren oder TDOA je Einheit liefern (Architektur klären). | P17, P19 | groß |
-| T8 | hoch | Tracking-Einheit (150) als eigenes Modul: ŝ mit α = 0,2, Kalman-Filter mit konstanter Geschwindigkeit, Kosinus > 0,7, χ²-Gate, Bestätigung nach 3 Reports, Ende nach 2 s, Ausgabe der Trajektorie, Feedback Id 8 an das Board | P17 | groß |
+| T8 | erledigt | Tracking-Einheit (150) als eigenes Modul: ŝ mit α = 0,2, Kalman-Filter mit konstanter Geschwindigkeit, Kosinus > 0,7, χ²-Gate, Bestätigung nach 3 Reports, Ende nach 2 s, Ausgabe der Trajektorie, Feedback Id 8 an das Board | P17 | groß |
 | T9 | niedrig | Altbestand entfernen oder nach `legacy/` verschieben; Hardware-Testskripte nach `tools/` | P14 | klein |
 | T10 | niedrig | Inhalt des Calibrate-Tabs festlegen, sobald die Firmware CALIBRATE umsetzt (Pegel und Laufzeit je Mikrofon, Nordrichtung) | P18 | offen |
 | T11 | niedrig | README (Start, Abhängigkeiten), Versionsnummer, Start-Skript für Windows; pytest in der CI | – | klein |

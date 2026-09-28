@@ -29,6 +29,7 @@ class SDSCommand(IntEnum):
     UNIT_ID = 5
     SRP_REFERENCE = 6
     SYNC = 7
+    FEEDBACK = 8
 
 
 class SDSUSBModel:

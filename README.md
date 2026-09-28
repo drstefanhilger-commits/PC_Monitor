@@ -19,6 +19,7 @@ python -m app.main
 - **Drehschalter Detect – Read – Calibrate:** wählt die Betriebsart des Boards und den angezeigten Tab.
 - **Board:** Unit-ID setzen, SRP-Referenzscan aus/ein.
 - **Sync:** UTC und Lufttemperatur. Wird beim Verbinden, jede Minute und bei Änderung der Temperatur gesendet; ohne Haken bei „Temp.“ gilt die Temperatur als unbekannt.
+- **Tracking:** Die Tracking-Einheit (FSL9 §8–10) bildet aus den Reports eine Spur (grün im Lageplan). Der Schalter „Feedback“ sendet ŝ und die Vorhersage an das Board (Id 8); „Trajektorie als CSV …“ speichert die Spuren.
 - **Unten:** Status- und Fehlermeldungen mit Zählern RX/TX/Fehler, dazu die Meldungen des Boards (Logger) als „SDS: …“.
 
 ![GUI](docs/gui_detect.png)

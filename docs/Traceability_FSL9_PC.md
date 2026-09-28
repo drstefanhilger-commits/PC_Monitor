@@ -9,14 +9,13 @@
 
 ## Zusammenfassung
 
-Von 25 Anforderungen an den PC-Monitor sind 7 erfüllt, 3 teilweise erfüllt, 14 nicht erfüllt und 1 nicht im Umfang (Stand nach T1–T5).
+Von 25 Anforderungen an den PC-Monitor sind 14 erfüllt, 5 teilweise erfüllt, 5 nicht erfüllt und 1 nicht im Umfang (Stand nach T1–T8).
 
 - Der PC-Monitor ist heute eine Anzeige für **eine** Einheit. Er steuert Betriebsart, Signalquelle, Unit-ID und SRP, sendet UTC und Temperatur (Sync) und zeigt Detect-Frame und UnitReport an: UTC in µs, Paare, Residuum, Bänder mit p_b.
-- Die patentwesentlichen PC-Funktionen fehlen vollständig:
-  - Lokalisation mit mehreren Einheiten (§6),
-  - Candidate Report (§7),
-  - Tracking-Einheit mit doppeltem Konsistenz-Gate (§8–9, Ansprüche 6, 7, 11),
-  - Feedback an die Firmware (§10, Anspruch 8).
+- Die Tracking-Einheit (Komponente B, §8–10) ist umgesetzt (T8). Es fehlen noch:
+  - Lokalisation mit mehreren Einheiten (§6, Komponente A),
+  - eine laufende Ausgabe der Trajektorie an ein externes System (§9, 162),
+  - die Nutzung der Vorhersage im Board für das TDOA-Suchfenster (§10, Firmware A34).
 - **Architekturfrage für §5 und §6:** Die Inter-Unit-GCC-PHAT braucht die Spektren bzw. die Signale mehrerer Einheiten an einem Ort. Der UnitReport überträgt nur Peilung, Residuum, Pegel und die Bänder mit p_b. Vor T7 muss feststehen, ob die Firmware Spektren der selektierten Bins überträgt oder ob die Einheiten ihre TDOA zu einer Master-Einheit bilden.
 
 ## Matrix
@@ -39,15 +38,15 @@ Code-Referenzen beziehen sich auf `app/`.
 | P11 | §7 | Candidate Report: Qualität | Zahl akzeptierter Paare, LS-Residuum | Paare und Residuum aus Id 5 angezeigt; Konfidenz aus Id 1 | `tabs/tab_detect.py update_unit_report` | Erfüllt |
 | P12 | §7 | Candidate Report: akustischer Zustand | Bandindizes und p_b der selektierten Bänder | Bandindizes und p_b aus Id 5 als Text und Balkendiagramm über 64 Bänder; Zustandsvektor mit 0 für nicht selektierte Bänder | `usb/messages.py state_vector`, `tabs/tab_detect.py` | Erfüllt |
 | P13 | §7 | Feste Binärstruktur, ~30 Reports/s | feste Struktur je Frame | feste Strukturen für Id 1, 2, 5, 99 mit Längenprüfung je Id, CRC-Prüfung und Byte-Resync (Tests `test_parser.py`) | `usb/sds_parser.py`, `usb/usb_reader.py` | Erfüllt |
-| P14 | §8 | Referenzzustand ŝ | ŝ ← (1 − α)ŝ + αs, α = 0,2, fehlende Bänder = 0 | nicht vorhanden | – | Nicht erfüllt |
-| P15 | §8 | Kinematischer Zustand | letzte Position, v, Zeit; Kalman-Filter mit konstanter Geschwindigkeit | nicht vorhanden | – | Nicht erfüllt |
-| P16 | §9(i), Anspr. 6(c)(i) | Akustisches Gate | Kosinus-Ähnlichkeit σ > θ_sim = 0,7 | nicht vorhanden | – | Nicht erfüllt |
-| P17 | §9(ii), Anspr. 6(c)(ii) | Räumlich-zeitliches Gate | Mahalanobis-Distanz < χ²₂,₀.₉₉ | nicht vorhanden | – | Nicht erfüllt |
-| P18 | §9, Anspr. 6(d) | Übernahme nur bei beiden Kriterien | sonst verwerfen, Filter nur Prädiktion | nicht vorhanden | – | Nicht erfüllt |
-| P19 | §9, Anspr. 7 | Start und Ende einer Spur | Start nach 3 aufeinanderfolgenden Reports, Ende nach 2 s ohne Report | nicht vorhanden | – | Nicht erfüllt |
-| P20 | §9, 162, Anspr. 6(e), 11 | Ausgabe der Trajektorie | Azimut, Distanz, Geschwindigkeit an ein externes System, mit Report-Rate | nur der letzte Punkt und Verläufe von Distanz und Konfidenz werden angezeigt; keine Spur, keine Ausgabe | `tabs/tab_detect.py` | Nicht erfüllt |
-| P21 | §10, Anspr. 8, 9(c), 12 | Feedback an die Firmware | nach jeder Übernahme ŝ und die vorhergesagte Position (Id 8, noch festzulegen) | nicht vorhanden; die Firmware hat `applyFeedback`, aber kein USB-Kommando dafür | – | Nicht erfüllt |
-| P22 | §12, FIG. 6 | Trennung Erkennung ↔ Tracking | zwei Funktionen mit definierter Schnittstelle, auch als Software-Module auf einer Plattform zulässig | Schnittstelle 140 = ICD (USB). Auf dem PC gibt es keine Trennung in Komponente A und B, weil beide fehlen. | SDS_110 `doc/ICD_SDS_PC_Monitor.md` | Nicht erfüllt |
+| P14 | §8 | Referenzzustand ŝ | ŝ ← (1 − α)ŝ + αs, α = 0,2, fehlende Bänder = 0 | ŝ ← 0,8·ŝ + 0,2·s über 64 Bänder, nicht selektierte Bänder = 0 (Test `test_reference_state_ema`) | `tracking/tracker.py` Tracker.process | Erfüllt |
+| P15 | §8 | Kinematischer Zustand | letzte Position, v, Zeit; Kalman-Filter mit konstanter Geschwindigkeit | Kalman-Filter mit konstanter Geschwindigkeit in (Ost, Nord), Zustand [x, y, vx, vy]; Messkovarianz aus σ_φ = 3° und σ_r = 30 % (Pegelmodell); Test: 10 m/s ± 2 m/s nach 5 s | `tracking/tracker.py` Tracker, measurement_cov | Erfüllt |
+| P16 | §9(i), Anspr. 6(c)(i) | Akustisches Gate | Kosinus-Ähnlichkeit σ > θ_sim = 0,7 | Kosinus-Ähnlichkeit σ(s, ŝ) > 0,7; Störquelle mit anderem Spektrum an der vorhergesagten Position wird verworfen (Test) | `tracking/tracker.py` cosine, THETA_SIM | Erfüllt |
+| P17 | §9(ii), Anspr. 6(c)(ii) | Räumlich-zeitliches Gate | Mahalanobis-Distanz < χ²₂,₀.₉₉ | Mahalanobis-Distanz² der Innovation < 9,21 (χ²₂,₀.₉₉); gleiches Spektrum 120° daneben wird verworfen (Test) | `tracking/tracker.py` CHI2_2_099 | Erfüllt |
+| P18 | §9, Anspr. 6(d) | Übernahme nur bei beiden Kriterien | sonst verwerfen, Filter nur Prädiktion | Übernahme (Kalman-Update, ŝ-Update) nur bei beiden Kriterien; sonst verworfen, Filter nur Prädiktion; Anzeige σ, d² und Grund | `tracking/tracker.py` Tracker.process | Erfüllt |
+| P19 | §9, Anspr. 7 | Start und Ende einer Spur | Start nach 3 aufeinanderfolgenden Reports, Ende nach 2 s ohne Report | vorläufige Spur aus dem ersten Report, bestätigt nach 3 aufeinanderfolgenden Reports (der erste zählt mit), Unterbrechung beginnt neu; Ende nach 2 s ohne Übernahme, auch wenn keine Reports mehr kommen | `tracking/tracker.py` N_INIT, T_END_S; `gui/main_window.py check_track_timeout` | Erfüllt |
+| P20 | §9, 162, Anspr. 6(e), 11 | Ausgabe der Trajektorie | Azimut, Distanz, Geschwindigkeit an ein externes System, mit Report-Rate | bestätigte Trajektorie im Lageplan (grün, Vorhersage als Ring), Geschwindigkeit und Kurs; Export als CSV; keine laufende Ausgabe an ein externes System | `tabs/tab_detect.py update_track`, `gui/main_window.py export_track` | Teilweise |
+| P21 | §10, Anspr. 8, 9(c), 12 | Feedback an die Firmware | nach jeder Übernahme ŝ und die vorhergesagte Position (Id 8, noch festzulegen) | Feedback Id 8 (ŝ + Vorhersage für das nächste Intervall) nach jeder Übernahme der bestätigten Spur, Zurücksetzen bei Spurende; Firmware wendet ŝ an und setzt nach 2 s zurück (SDS_110 t_feedback); die Vorhersage nutzt die Firmware noch nicht (A34) | `tracking/feedback.py`, `gui/main_window.py track_report` | Erfüllt |
+| P22 | §12, FIG. 6 | Trennung Erkennung ↔ Tracking | zwei Funktionen mit definierter Schnittstelle, auch als Software-Module auf einer Plattform zulässig | Tracking-Einheit als eigenes Modul ohne Qt (`app/tracking/`), Eingang = Candidate Reports, Ausgang = Trajektorie und Feedback; Komponente A (Lokalisation mehrerer Einheiten) fehlt | `tracking/`, SDS_110 `doc/ICD_SDS_PC_Monitor.md` | Teilweise |
 | P23 | ICD | Steuerung des Boards | Betriebsart (Id 2), Signalquelle (Id 3) mit den Werten der Firmware | Drehschalter und Schalter senden Id 2 und 3 mit den Firmware-Werten und gültiger CRC; beim Verbinden wird der Stand der Schalter gesendet (Tests `test_gui.py`, `test_loopback.py`) | `gui/main_window.py on_mode, on_simulation, connect_usb` | Erfüllt |
 | P24 | ICD, §11 | Anzeige von Fehlern | fehlerhafte Frames erkennen und melden | Resync, falsche Länge, CRC-Fehler und unbekannte Ids erscheinen im Status-Fenster mit Zählern | `usb/sds_parser.py`, `gui/main_window.py process_queue` | Erfüllt |
 | P25 | Anspr. 14 | Programm der Tracking-Einheit | computerlesbares Medium | betrifft die Patentform, kein Softwaremerkmal | – | Nicht im Umfang |
@@ -61,5 +60,5 @@ Die Zeilen P23 und P24 stammen aus der ICD und nicht aus FSL9. Die Zählung in d
 | 1 | P9–P13 | erledigt: UnitReport Id 5 lesen und anzeigen, Reader mit Resync und CRC | T1, T2 |
 | 2 | P1, P2 | erledigt: Sync Id 7 mit UTC und Temperatur; offen: Temperatursensor, GNSS-PPS (HW-Version 2) | T3 |
 | 3 | P7 | erledigt: Azimut ab Nord im Uhrzeigersinn in Firmware und Plot | T5 |
-| 4 | P14–P21 | Tracking-Einheit als eigenes Modul (Komponente B), zunächst mit Reports **einer** Einheit (Peilung + Pegel-Distanz); Feedback Id 8 zusammen mit der Firmware festlegen | T8 |
+| 4 | P14–P21 | erledigt: Tracking-Einheit als eigenes Modul, Feedback Id 8 (PC und Firmware); offen: Ausgabe an ein externes System, Vorhersage in der Firmware nutzen (A34) | T8 |
 | 5 | P3–P6, P8, P22 | Mehrere Einheiten und Lokalisation (Komponente A); vorher die Architekturfrage klären | T7 |
