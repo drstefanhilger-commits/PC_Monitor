@@ -9,7 +9,7 @@
 
 ## Zusammenfassung
 
-Von 25 Anforderungen an den PC-Monitor sind 14 erfüllt, 5 teilweise erfüllt, 5 nicht erfüllt und 1 nicht im Umfang (Stand nach T1–T8).
+Von 25 Anforderungen an den PC-Monitor sind 14 erfüllt, 6 teilweise erfüllt, 4 nicht erfüllt und 1 nicht im Umfang (Stand nach T1–T11 und Standort).
 
 - Der PC-Monitor ist heute eine Anzeige für **eine** Einheit. Er steuert Betriebsart, Signalquelle, Unit-ID und SRP, sendet UTC und Temperatur (Sync) und zeigt Detect-Frame und UnitReport an: UTC in µs, Paare, Residuum, Bänder mit p_b.
 - Die Tracking-Einheit (Komponente B, §8–10) ist umgesetzt (T8). Es fehlen noch:
@@ -27,7 +27,7 @@ Code-Referenzen beziehen sich auf `app/`.
 | --- | --- | --- | --- | --- | --- | --- |
 | P1 | §1, A6 | Zeitbezug der Einheiten | UTC, Synchronisation ≤ 10 µs | Sync Id 7 mit UTC in µs beim Verbinden, jede Minute und per Knopf (über USB ~1 ms genau); ≤ 10 µs erst mit GNSS-PPS (HW-Version 2) | `gui/main_window.py send_sync`, `model/SDSUSBModel.py build_sync_message` | Teilweise |
 | P2 | §5, A23 | Temperatur für c | c temperaturkorrigiert | Temperatur als Eingabe im Bedienfeld (−40…+60 °C), gesendet in Id 7; kein Sensor | `widgets/control_panel.py temperature`, `model/SDSUSBModel.py build_sync_message` | Teilweise |
-| P3 | §1, §6 | Positionen der Einheiten | vermessen auf 0,1 m, gespeichert | keine Konfiguration von Einheiten | – | Nicht erfüllt |
+| P3 | §1, §6 | Positionen der Einheiten | vermessen auf 0,1 m, gespeichert | Standort einer Einheit (WGS84, 1e-7° ≈ 1 cm, Höhe mm) eingeben, speichern, beim Verbinden senden (Id 10), Rückmeldung des Boards (Id 6, Quelle PC/GNSS); Spur als Breite/Länge im CSV. Mehrere Einheiten mit T7 | `geo.py`, `gui/main_window.py on_position`, `widgets/control_panel.py` | Teilweise |
 | P4 | §5, Anspr. 1(e), 10 | Inter-Unit-GCC-PHAT | Korrelation zwischen Einheiten mit gemeinsamer Selektion und Gewichten | nicht vorhanden; die Daten dafür werden nicht übertragen (Architekturfrage) | – | Nicht erfüllt |
 | P5 | §6(a) | Multilateration | N ≥ 3: Hyperbeln \|x − u_i\| − \|x − u_j\| = c·τ_ij, gewichtete LS, Gewicht = Peak-Ratio | nicht vorhanden | – | Nicht erfüllt |
 | P6 | §6(b) | Gemeinsamer Modus | N = 2: eine Hyperbel + zwei Peilungen, gewichtete LS | nicht vorhanden; die Peilungen im UnitReport Id 5 werden nicht gelesen | – | Nicht erfüllt |

@@ -28,6 +28,7 @@ class SDSCommand(IntEnum):
     SYNC = 7
     FEEDBACK = 8
     AZIMUTH_OFFSET = 9
+    POSITION = 10
 
 
 class SDSUSBModel:
@@ -55,6 +56,7 @@ class SDSUSBModel:
         self.read_queue = Queue(maxsize=self.QUEUE_MAX)
         self.unit_queue = Queue(maxsize=self.QUEUE_MAX)      # UnitReport (Id 5)
         self.log_queue = Queue(maxsize=self.QUEUE_MAX)       # Logger (Id 99)
+        self.position_queue = Queue(maxsize=self.QUEUE_MAX)  # Standort (Id 6)
         self.inspect_queue = Queue(maxsize=self.QUEUE_MAX)
         self._dropped = 0
         self._dropped_lock = threading.Lock()
@@ -137,7 +139,7 @@ class SDSUSBModel:
             self.read_queue.get_nowait()
         while not self.inspect_queue.empty():
             self.inspect_queue.get_nowait()
-        for q in (self.unit_queue, self.log_queue):
+        for q in (self.unit_queue, self.log_queue, self.position_queue):
             while not q.empty():
                 q.get_nowait()
 
@@ -241,6 +243,23 @@ class SDSUSBModel:
         from app.calibration import offset_to_centi
         return self._build_header_and_payload(SDSCommand.AZIMUTH_OFFSET,
                                               offset_to_centi(offset_deg) & 0xFFFFFFFF)
+
+    def build_position_message(self, pos=None) -> bytes:
+        """
+        Standort (Id 10, 28 Byte, ICD 4.5): Breite, Länge i32 BE in 1e-7°, Höhe i32 BE in mm über NN,
+        Flags (Bit 0 = gültig), 3 Byte reserviert, CRC32 BE. pos None -> Position löschen.
+        """
+        from app.geo import to_wire, validate
+        if pos is None:
+            lat = lon = alt = 0
+            flags = 0
+        else:
+            lat, lon, alt = to_wire(validate(pos))
+            flags = 1
+        body = (b"\xDE\xAD\xBE\xEF" + bytes([SDSCommand.POSITION]) + (28).to_bytes(3, "big")
+                + lat.to_bytes(4, "big", signed=True) + lon.to_bytes(4, "big", signed=True)
+                + alt.to_bytes(4, "big", signed=True) + bytes([flags, 0, 0, 0]))
+        return body + (zlib.crc32(body) & 0xFFFFFFFF).to_bytes(4, "big")
 
     TEMP_UNKNOWN = 0x8000
 

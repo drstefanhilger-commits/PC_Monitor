@@ -2,7 +2,7 @@
 SDSParser – Rahmen SDS -> PC aus einem Bytestrom lösen (SDS_110 doc/ICD_SDS_PC_Monitor.md, Abschnitt 3/5)
 
 - Synchronisation Byte für Byte auf das Magic (Bytes EF BE AD DE)
-- Länge je bekannter Id fest (Detect 32, Read 532, Log 48, UnitReport 144, Logger 144),
+- Länge je bekannter Id fest (Detect 32, Read 532, Log 48, UnitReport 144, Standort 144, Logger 144),
   unbekannte Ids 12 … 1024 Byte
 - CRC32 (zlib) über alle Bytes vor den letzten 4, little-endian
 - Bei ungültiger Länge oder CRC wird nur 1 Byte verworfen und neu synchronisiert: ein
@@ -15,7 +15,7 @@ MAGIC = 0xDEADBEEF
 MAGIC_BYTES = struct.pack("<I", MAGIC)          # EF BE AD DE
 
 # Id -> Gesamtlänge (Byte), siehe ICD Abschnitt 5
-FRAME_LENGTH = {1: 32, 2: 532, 3: 48, 5: 144, 99: 144}
+FRAME_LENGTH = {1: 32, 2: 532, 3: 48, 5: 144, 6: 144, 99: 144}
 MIN_LEN, MAX_LEN = 12, 1024
 
 

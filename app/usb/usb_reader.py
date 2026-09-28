@@ -12,7 +12,7 @@ class USBReader(QThread):
     - liest verfügbare Bytes und zerlegt sie mit SDSParser (Resync auf das Magic, Länge je Id, CRC)
     - legt gültige Frames nach Id in die Queues des SDSUSBModel:
         1 Detect -> detect_queue, 2 Read -> read_queue, 5 UnitReport -> unit_queue,
-        99 Logger -> log_queue, andere -> inspect_queue ("unknown_msg_id")
+        6 Standort -> position_queue, 99 Logger -> log_queue, andere -> inspect_queue ("unknown_msg_id")
     - Fehler (Resync, Länge, CRC) -> inspect_queue ("error")
     - meldet Logs über log_signal (thread-safe)
     - Verbindungsabbruch (USB gezogen, Board zurückgesetzt): SerialException/OSError oder
@@ -23,7 +23,7 @@ class USBReader(QThread):
     connection_lost = pyqtSignal(str)
     MAX_ERRORS = 20
 
-    ROUTE = {1: "detect_queue", 2: "read_queue", 5: "unit_queue", 99: "log_queue"}
+    ROUTE = {1: "detect_queue", 2: "read_queue", 5: "unit_queue", 6: "position_queue", 99: "log_queue"}
     CHUNK = 4096
 
     def __init__(self, ser, model, verbose: bool = False):

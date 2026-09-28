@@ -5,7 +5,8 @@ from collections import OrderedDict
 import numpy as np
 import serial
 from PyQt6.QtCore import QSettings, Qt, QTimer
-from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QMainWindow, QSplitter, QTabWidget, QWidget
+from PyQt6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QMainWindow, QScrollArea, QSplitter,
+                             QTabWidget, QWidget)
 
 from app import __version__
 from app.model.SDSUSBModel import SDSMode, SDSUSBModel
@@ -13,7 +14,8 @@ from app.tabs.tab_calibrate import TabCalibrate
 from app.tabs.tab_detect import TabDetect
 from app.tabs.tab_read import TabRead
 from app.tracking.tracker import CandidateReport, Tracker, T_END_S
-from app.usb.messages import LineAssembler, parse_detect, parse_logger, parse_unit_report
+from app.geo import GeoPosition, enu_to_geodetic, parse_position as parse_position_text
+from app.usb.messages import LineAssembler, parse_detect, parse_logger, parse_position, parse_unit_report
 from app.usb.usb_reader import USBReader
 from app.usb.usb_writer import USBWriter
 from app.widgets.control_panel import ControlPanel
@@ -65,6 +67,7 @@ class MainWindow(QMainWindow):
         self.controls.srp_toggled.connect(self.on_srp)
         self.controls.sync_requested.connect(self.send_sync)
         self.controls.feedback_toggled.connect(self.on_feedback_toggled)
+        self.controls.position_set.connect(self.on_position)
         self.controls.export_requested.connect(self.on_export)
 
         # --- Tabs, je Betriebsart einer -------------------------------------
@@ -73,6 +76,11 @@ class MainWindow(QMainWindow):
         self.detect_tab = TabDetect()
         self.read_tab = TabRead()
         self.calibrate_tab = TabCalibrate()
+        self.board_position = None             # letzte Nachricht Id 6
+        p = self.position()
+        if p is not None:
+            self.controls.pos_edit.setText(p.text())
+            self.controls.pos_edit.setCursorPosition(0)
         self.calibrate_tab.set_offset(self.azimuth_offset())
         self.calibrate_tab.offset_apply.connect(self.on_azimuth_offset)
         self.tab_index = {
@@ -87,7 +95,13 @@ class MainWindow(QMainWindow):
         top = QWidget()
         h = QHBoxLayout(top)
         h.setContentsMargins(0, 0, 0, 0)
-        h.addWidget(self.controls)
+        scroll = QScrollArea()                 # Bedienfeld scrollbar: passt auch auf kleine Bildschirme
+        scroll.setWidget(self.controls)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setMinimumWidth(self.controls.sizeHint().width() + 16)
+        h.addWidget(scroll)
         h.addWidget(self.tabs, 1)
 
         split = QSplitter(Qt.Orientation.Vertical)
@@ -95,7 +109,7 @@ class MainWindow(QMainWindow):
         split.addWidget(self.status)
         split.setStretchFactor(0, 4)
         split.setStretchFactor(1, 1)
-        split.setSizes([560, 180])
+        split.setSizes([800, 150])            # Status unten schmal, per Splitter verstellbar
         self.setCentralWidget(split)
 
         self.show_mode_tab(self.controls.mode())
@@ -170,6 +184,50 @@ class MainWindow(QMainWindow):
             self.status.log(f"Nordabgleich {deg:+.2f}° gespeichert; wird beim Verbinden gesendet")
 
     # ------------------------------------------------------------
+    # Standort (Id 10): gespeichert, beim Verbinden gesendet; Board meldet Id 6
+    # ------------------------------------------------------------
+    def position(self):
+        """gespeicherter Standort oder None"""
+        v = self.settings.value("position", "")
+        if not v:
+            return None
+        try:
+            return parse_position_text(str(v))
+        except ValueError:
+            return None
+
+    def on_position(self, text: str):
+        try:
+            p = parse_position_text(text)
+        except ValueError as e:
+            self.status.log(f"Standort: {e}", "ERROR")
+            return
+        self.settings.setValue("position", p.text())
+        self.settings.sync()
+        self.controls.pos_edit.setText(p.text())
+        self.controls.pos_edit.setCursorPosition(0)
+        if self.writer:
+            self.writer.send_position(p)
+        else:
+            self.status.log(f"Standort {p.text()} gespeichert; wird beim Verbinden gesendet")
+
+    def on_board_position(self, bp):
+        self.board_position = bp
+        mine = self.position()
+        ok = bp.valid
+        if ok and mine is not None and bp.source == 1:        # vom PC gesetzt: stimmt er?
+            ok = abs(bp.lat_deg - mine.lat_deg) < 2e-7 and abs(bp.lon_deg - mine.lon_deg) < 2e-7 \
+                and abs(bp.alt_m - mine.alt_m) < 0.002
+        self.controls.set_board_position(bp.text(), ok)
+
+    def track_origin(self):
+        """Standort für die Umrechnung der Spur: vom Board gemeldet, sonst der gespeicherte"""
+        bp = self.board_position
+        if bp is not None and bp.valid:
+            return GeoPosition(bp.lat_deg, bp.lon_deg, bp.alt_m)
+        return self.position()
+
+    # ------------------------------------------------------------
     # Tracking-Einheit
     # ------------------------------------------------------------
     DETECT_KEEP = 64
@@ -223,7 +281,11 @@ class MainWindow(QMainWindow):
         self.status.log(f"Tracking-Feedback {'ein' if on else 'aus'}")
 
     def export_track(self, path: str) -> int:
-        """Beendete und laufende bestätigte Trajektorien als CSV; Rückgabe: Zahl der Punkte."""
+        """
+        Beendete und laufende bestätigte Trajektorien als CSV; Rückgabe: Zahl der Punkte.
+        Mit bekanntem Standort (Id 6 vom Board oder gespeichert) auch Breite/Länge je Punkt.
+        """
+        origin = self.track_origin()
         tracks = list(self.tracker.finished)
         if self.tracker.track is not None and self.tracker.track.confirmed:
             tracks.append(self.tracker.track.trajectory)
@@ -231,11 +293,16 @@ class MainWindow(QMainWindow):
         with open(path, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f, delimiter=";")
             w.writerow(["spur", "zeit_s", "ost_m", "nord_m", "v_ost_ms", "v_nord_ms",
-                        "azimut_deg", "distanz_m", "geschw_ms", "kurs_deg"])
+                        "azimut_deg", "distanz_m", "geschw_ms", "kurs_deg", "breite_deg", "laenge_deg"])
             for k, tr in enumerate(tracks, 1):
                 for p in tr:
+                    geo = ["", ""]
+                    if origin is not None:
+                        lat, lon = enu_to_geodetic(origin, p.x, p.y)
+                        geo = [f"{lat:.7f}", f"{lon:.7f}"]
                     w.writerow([k, f"{p.time_s:.6f}", f"{p.x:.2f}", f"{p.y:.2f}", f"{p.vx:.2f}", f"{p.vy:.2f}",
-                                f"{p.azimuth_deg:.2f}", f"{p.distance_m:.2f}", f"{p.speed_ms:.2f}", f"{p.course_deg:.1f}"])
+                                f"{p.azimuth_deg:.2f}", f"{p.distance_m:.2f}", f"{p.speed_ms:.2f}", f"{p.course_deg:.1f}"]
+                               + geo)
                     n += 1
         return n
 
@@ -289,6 +356,9 @@ class MainWindow(QMainWindow):
         self.writer.send_mode(int(self.controls.mode()))
         self.writer.send_srp(self.controls.srp())
         self.writer.send_azimuth_offset(self.azimuth_offset())
+        p = self.position()
+        if p is not None:
+            self.writer.send_position(p)
         self.send_sync()
         self.sync_timer.start(self.SYNC_PERIOD_MS)
 
@@ -370,6 +440,15 @@ class MainWindow(QMainWindow):
             self.detect_tab.update_unit_report(r)
             self.calibrate_tab.update_unit_report(r)
             self.track_report(r)
+
+        while not self.model.position_queue.empty():
+            msg_id, frame = self.model.position_queue.get()
+            self.model.stats_total += 1
+            try:
+                self.on_board_position(parse_position(frame))
+            except ValueError as e:
+                self.model.stats_rejected += 1
+                self.status.log(f"Standort: {e}", "ERROR")
 
         while not self.model.log_queue.empty():
             msg_id, frame = self.model.log_queue.get()
