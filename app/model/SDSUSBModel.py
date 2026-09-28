@@ -1,6 +1,7 @@
 from enum import IntEnum
 from queue import Queue
 import threading
+import zlib
 
 
 STOP_REQUESTED = threading.Event()
@@ -13,9 +14,21 @@ class SDSMessageID(IntEnum):
 
 
 class SDSMode(IntEnum):
+    # Werte wie in der Firmware (SDS_110 SDS_Structs.hpp, ICD Id 2); bis 28.09.2026 waren
+    # READ und CALIBRATE vertauscht (READ sendete 2 = CALIBRATE, Befund 25)
     DETECT = 1
-    READ = 2
-    CALIBRATE = 3
+    CALIBRATE = 2
+    READ = 3
+
+
+class SDSCommand(IntEnum):
+    # Kommando-Ids PC -> SDS (SDS_110 doc/ICD_SDS_PC_Monitor.md)
+    TIME_SYNC = 1
+    MODE = 2
+    SIMULATION = 3
+    UNIT_ID = 5
+    SRP_REFERENCE = 6
+    SYNC = 7
 
 
 class SDSUSBModel:
@@ -66,7 +79,7 @@ class SDSUSBModel:
         # Send-Statistik
         # ------------------------------------------------------------
         self.stats_sent_total = 0
-        self.stats_sent_by_id = {1: 0, 2: 0, 3: 0}
+        self.stats_sent_by_id = {int(c): 0 for c in SDSCommand}
         self.last_sent_frame = None
         self.last_sent_msg_id = None
 
@@ -159,8 +172,7 @@ class SDSUSBModel:
     # ------------------------------------------------------------
     def update_sent(self, msg_id: int, frame: bytes):
         self.stats_sent_total += 1
-        if msg_id in self.stats_sent_by_id:
-            self.stats_sent_by_id[msg_id] += 1
+        self.stats_sent_by_id[msg_id] = self.stats_sent_by_id.get(msg_id, 0) + 1
         self.last_sent_msg_id = msg_id
         self.last_sent_frame = frame
 
@@ -173,18 +185,19 @@ class SDSUSBModel:
         total_len = (16).to_bytes(3, "big")     # 00 00 10
 
         payload = value.to_bytes(4, "big")      # 00 00 00 vv
-        crc = b"\x12\x34\x56\x78"               # Dummy CRC
+        body = magic + msg_id_b + total_len + payload
+        crc = (zlib.crc32(body) & 0xFFFFFFFF).to_bytes(4, "big")   # CRC32 über Byte 0–11 (ICD 3)
 
-        return magic + msg_id_b + total_len + payload + crc
+        return body + crc
 
     def build_time_sync_message(self) -> bytes:
-        # Time-Sync: Wert immer 0
-        return self._build_header_and_payload(1, 0)
+        # Time-Sync (alt, Id 1): Wert immer 0; für UTC künftig Id 7 (ICD 4.2)
+        return self._build_header_and_payload(SDSCommand.TIME_SYNC, 0)
 
     def build_mode_message(self, mode_id: int) -> bytes:
-        # Mode: 1=Detect, 2=Read, 3=Calibrate
-        return self._build_header_and_payload(2, mode_id)
+        # Mode: 1=Detect, 2=Calibrate, 3=Read (SDSMode)
+        return self._build_header_and_payload(SDSCommand.MODE, mode_id)
 
     def build_simulation_message(self, sim_state: int) -> bytes:
         # Simulation: 0=Real, 1=Simulated
-        return self._build_header_and_payload(3, sim_state)
+        return self._build_header_and_payload(SDSCommand.SIMULATION, sim_state)

@@ -15,11 +15,13 @@ class USBReader(QThread):
 
     log_signal = pyqtSignal(str)
 
-    def __init__(self, ser, model):
+    def __init__(self, ser, model, verbose: bool = False):
         super().__init__()
         self.ser = ser
         self.model = model
         self.running = True
+        # verbose: jeden Header und Frame als Hex melden (bei READ ~3000 Frames/s -> nur zur Diagnose)
+        self.verbose = verbose
 
     def stop(self):
         self.running = False
@@ -53,9 +55,10 @@ class USBReader(QThread):
                 msg_id = (len_id >> 24) & 0xFF       # oberes Byte
                 length = len_id & 0x00FFFFFF         # untere 24 Bits
 
-                self.log_signal.emit(
-                    f"[USBReader] Header OK: magic=DEADBEEF, msg_id={msg_id}, len={length}"
-                )
+                if self.verbose:
+                    self.log_signal.emit(
+                        f"[USBReader] Header OK: magic=DEADBEEF, msg_id={msg_id}, len={length}"
+                    )
 
                 # ------------------------------------------------------------
                 # Rest des Frames nachladen
@@ -77,9 +80,10 @@ class USBReader(QThread):
                 # RAW dump aktualisieren
                 self.model.update_raw_dump(frame)
 
-                self.log_signal.emit(
-                    f"[USBReader] RAW FRAME ({len(frame)} bytes): {frame.hex()}"
-                )
+                if self.verbose:
+                    self.log_signal.emit(
+                        f"[USBReader] RAW FRAME ({len(frame)} bytes): {frame.hex()}"
+                    )
 
                 # ------------------------------------------------------------
                 # SDS Message Routing

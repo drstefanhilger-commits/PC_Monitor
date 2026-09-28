@@ -40,22 +40,16 @@ class USBWriter(QThread):
                 time.sleep(0.05)
 
     # ------------------------------------------------------------
-    # MODE MESSAGE SENDEN (protokoll-korrekt)
+    # Kommandos senden (Frames baut das Model, ICD Abschnitt 4)
     # ------------------------------------------------------------
-    def send_mode(self, mode_id: int):
-        """
-        Baut und sendet eine SDS MODE Message gemäß
-        dem Frame-Layout in SDSUSBModel.build_mode_message().
-        """
-
-        # SDS-konformen Frame aus dem Model holen
-        packet = self.model.build_mode_message(mode_id)
-
-        # Logging (sichtbar im Inspector)
-        self.log_signal.emit(f"[USBWriter] MODE Frame: {packet.hex()}")
-
-        # Statistik aktualisieren
-        self.model.update_sent(3, packet)
-
-        # Senden
+    def send_packet(self, msg_id: int, packet: bytes, name: str):
+        self.log_signal.emit(f"TX {name}: {packet.hex(' ').upper()}")
+        self.model.update_sent(int(msg_id), packet)
         self.write_queue.put(packet)
+
+    def send_mode(self, mode_id: int):
+        self.send_packet(2, self.model.build_mode_message(mode_id), f"Mode {mode_id}")
+
+    def send_simulation(self, on: bool):
+        self.send_packet(3, self.model.build_simulation_message(1 if on else 0),
+                         "Simulation" if on else "Real")
