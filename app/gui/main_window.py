@@ -4,9 +4,10 @@ from collections import OrderedDict
 
 import numpy as np
 import serial
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QSettings, Qt, QTimer
 from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QMainWindow, QSplitter, QTabWidget, QWidget
 
+from app import __version__
 from app.model.SDSUSBModel import SDSMode, SDSUSBModel
 from app.tabs.tab_calibrate import TabCalibrate
 from app.tabs.tab_detect import TabDetect
@@ -38,9 +39,11 @@ class MainWindow(QMainWindow):
     SYNC_PERIOD_MS = 60_000       # Sync (UTC + Temperatur) jede Minute, ICD 4.2
     POLL_BUDGET_S = 0.015         # je Poll höchstens 15 ms arbeiten, dann zurück in die Ereignisschleife
 
-    def __init__(self):
+    def __init__(self, settings: QSettings = None):
         super().__init__()
-        self.setWindowTitle("SDS USB Monitor Version 1.10")
+        self.setWindowTitle(f"SDS USB Monitor {__version__}")
+        # dauerhafte Einstellungen (Nordabgleich); Tests übergeben eine eigene Datei
+        self.settings = settings if settings is not None else QSettings("SDS_110", "PC_Monitor")
 
         self.model = SDSUSBModel()
         self.ser = None
@@ -70,6 +73,8 @@ class MainWindow(QMainWindow):
         self.detect_tab = TabDetect()
         self.read_tab = TabRead()
         self.calibrate_tab = TabCalibrate()
+        self.calibrate_tab.set_offset(self.azimuth_offset())
+        self.calibrate_tab.offset_apply.connect(self.on_azimuth_offset)
         self.tab_index = {
             SDSMode.DETECT: self.tabs.addTab(self.detect_tab, "Detect"),
             SDSMode.READ: self.tabs.addTab(self.read_tab, "Read"),
@@ -145,6 +150,24 @@ class MainWindow(QMainWindow):
             self.writer.send_srp(on)
         else:
             self.status.log(f"SRP {'ein' if on else 'aus'}; wird beim Verbinden gesendet")
+
+    # ------------------------------------------------------------
+    # Nordabgleich (Id 9): gespeichert, beim Verbinden gesendet
+    # ------------------------------------------------------------
+    def azimuth_offset(self) -> float:
+        try:
+            return float(self.settings.value("azimuth_offset_deg", 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    def on_azimuth_offset(self, deg: float):
+        self.settings.setValue("azimuth_offset_deg", float(deg))
+        self.settings.sync()
+        self.calibrate_tab.set_offset(deg)
+        if self.writer:
+            self.writer.send_azimuth_offset(deg)
+        else:
+            self.status.log(f"Nordabgleich {deg:+.2f}° gespeichert; wird beim Verbinden gesendet")
 
     # ------------------------------------------------------------
     # Tracking-Einheit
@@ -265,6 +288,7 @@ class MainWindow(QMainWindow):
         self.writer.send_simulation(self.controls.simulation())
         self.writer.send_mode(int(self.controls.mode()))
         self.writer.send_srp(self.controls.srp())
+        self.writer.send_azimuth_offset(self.azimuth_offset())
         self.send_sync()
         self.sync_timer.start(self.SYNC_PERIOD_MS)
 
@@ -344,6 +368,7 @@ class MainWindow(QMainWindow):
                 continue
             self.model.stats_unit += 1
             self.detect_tab.update_unit_report(r)
+            self.calibrate_tab.update_unit_report(r)
             self.track_report(r)
 
         while not self.model.log_queue.empty():

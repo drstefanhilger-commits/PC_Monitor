@@ -48,13 +48,17 @@ def test_power_on_sends_state_and_receives_detect():
         w.controls.port_combo.addItem(os.ttyname(slave))
         w.controls.port_combo.setCurrentText(os.ttyname(slave))
         w.controls.mode_dial.set_mode(SDSMode.READ, emit=False)
+        w.settings.setValue("azimuth_offset_deg", -12.34)                     # gespeicherter Nordabgleich
         w.controls.sw_power.click()
         assert w.controls.sw_power.isChecked()
-        cmds = read_exact(master, 16 * 3 + 24)
+        cmds = read_exact(master, 16 * 4 + 24)
         assert cmds[:12] == bytes.fromhex("DEADBEEF03000010" "00000001")      # Simulation
         assert cmds[16:28] == bytes.fromhex("DEADBEEF02000010" "00000003")    # READ = 3
         assert cmds[32:44] == bytes.fromhex("DEADBEEF06000010" "00000000")    # SRP aus
-        sync = cmds[48:72]
+        off = cmds[48:64]                                                     # Nordabgleich −12,34°
+        assert off[:12] == bytes.fromhex("DEADBEEF09000010" "FFFFFB2E")
+        assert off[12:] == (zlib.crc32(off[:12]) & 0xFFFFFFFF).to_bytes(4, "big")
+        sync = cmds[64:88]
         assert sync[:8] == bytes.fromhex("DEADBEEF07000018")                  # Sync, 24 Byte
         assert abs(int.from_bytes(sync[8:16], "big") / 1e6 - time.time()) < 5
         assert sync[16:18] == (2000).to_bytes(2, "big")                       # 20,0 °C

@@ -6,7 +6,7 @@
   - Schnittstelle: SDS_110 `doc/ICD_SDS_PC_Monitor.md`
   - Patent: FSL9 (SDS_110 `doc/Stefan_FSL9.docx`)
   - Traceability der Firmware: SDS_110 `doc/Traceability_FSL9.md`
-- **Umgesetzt:** GUI-Redesign (Abschnitt 3) sowie die Befunde P1, P2, P11 (Log-Flut) und P13–P15. Seit 28.09.2026 außerdem T1–T3: P3–P7 und P12 sind behoben (Abschnitt 3a). Die übrigen Befunde sind offen und in der ToDo-Liste (Abschnitt 4) eingeplant.
+- **Umgesetzt:** GUI-Redesign (Abschnitt 3) sowie die Befunde P1, P2, P11 (Log-Flut) und P13–P15. Seit 28.09.2026 außerdem T1–T6 und T8–T11 (Abschnitte 3a–3f). Offen ist T7 (mehrere Einheiten). Die übrigen Befunde sind offen und in der ToDo-Liste (Abschnitt 4) eingeplant.
 
 ## 1. Aufbau
 
@@ -15,13 +15,16 @@
 | Start | `app/main.py` | QApplication, MainWindow |
 | Hauptfenster | `app/gui/main_window.py` | Layout, USB-Verbindung, Queue-Polling mit 50 Hz |
 | Modell | `app/model/SDSUSBModel.py` | Queues, Zähler, Aufbau der Kommandos PC → SDS |
-| USB | `app/usb/usb_reader.py`, `usb_writer.py` | QThreads: Frames lesen und in Queues legen, Kommandos schreiben |
-| USB (ungenutzt) | `app/usb/sds_parser.py`, `usb_port_manager.py` | Byte-Resync und CRC-Prüfung; Port-Verwaltung |
+| USB | `app/usb/usb_reader.py`, `usb_writer.py`, `sds_parser.py`, `messages.py` | QThreads: Frames lesen (Resync, CRC) und in Queues legen, Kommandos schreiben; Nachrichten zerlegen |
 | Tabs | `app/tabs/tab_detect.py`, `tab_read.py`, `tab_calibrate.py` | Anzeige je Betriebsart |
 | Bedienelemente | `app/widgets/control_panel.py`, `mode_dial.py`, `toggle_switch.py`, `status_panel.py` | Bedienfeld links, Status unten |
-| Altbestand | `Safe/`, `srp_monitor.py`, `app/gui/sds_read_usb_receiver_gui.py` | frühere Versionen mit altem Protokoll, nicht lauffähig bzw. nicht eingebunden |
+| Tracking | `app/tracking/tracker.py`, `feedback.py` | Tracking-Einheit 150, Feedback Id 8 |
+| Kalibrierung | `app/calibration.py` | Nordabgleich (Id 9) |
+| Werkzeuge | `tools/hw_reader.py`, `hw_writer.py` | Hilfsskripte für einen echten Port, nicht Teil der Tests |
 
-Datenfluss: Der `USBReader` liest einen 8-Byte-Kopf, danach den Rest laut Länge, und legt das Frame nach Id in `detect_queue`, `read_queue` oder `inspect_queue`. Das Hauptfenster leert die Queues alle 20 ms und verteilt die Frames an die Tabs.
+Der Altbestand (`Safe/`, `srp_monitor.py`, `app/gui/sds_read_usb_receiver_gui.py`, `app/usb/usb_port_manager.py`) ist seit T9 entfernt; er steht in der Git-Historie.
+
+Datenfluss: Der `USBReader` gibt den Bytestrom an den `SDSParser` (Resync auf das Magic, Länge je Id, CRC) und legt die Frames nach Id in `detect_queue`, `read_queue`, `unit_queue`, `log_queue` oder `inspect_queue` (Fehler). Das Hauptfenster leert die Queues alle 20 ms mit einem Zeitbudget von 15 ms und verteilt die Frames an die Tabs und die Tracking-Einheit.
 
 ## 2. Befunde
 
@@ -42,11 +45,11 @@ Status: **behoben** = in diesem Stand umgesetzt und getestet, **offen** = in der
 | P11 | hoch | Bei READ kommen ~3000 Nachrichten/s. Der Reader meldete jedes Frame als Hex-Text, der Inspector baute bei jedem Frame seinen Text neu auf, und der Read-Tab setzt bei jedem Frame seinen Text | Die GUI friert ein, der Speicher wächst (Queues ohne Grenze) | behoben: Log-Flut, Read-Tab zeichnet mit 10 Hz, Zeitbudget je Poll, begrenzte Queues (T4) |
 | P12 | mittel | `serial.read()` mit 0,1 s Timeout kann den Rest eines Frames nur teilweise liefern | Meldung „payload_incomplete“ und danach Versatz (P3) | behoben (T1: Bytestrom statt fester Lesegrößen) |
 | P13 | niedrig | Der Inspector zählte unbekannte Ids als „corrupt“. Der Logger schrieb in dasselbe Textfeld, das der Inspector 50-mal pro Sekunde geleert hat. Die TX-Statistik kannte nur die Ids 1–3. | falsche Zähler, Meldungen verschwanden sofort | behoben (Status-Fenster, `update_sent` für alle Ids) |
-| P14 | niedrig | Altbestand im Repository: `Safe/`, `srp_monitor.py` (tkinter, 24-Byte-Frames), `sds_read_usb_receiver_gui.py` (defekter Import), unbenutzte Teile (`STOP_REQUESTED`, `USBPortManager`) | Verwechslungsgefahr beim Weiterentwickeln | offen (T9) |
+| P14 | niedrig | Altbestand im Repository: `Safe/`, `srp_monitor.py` (tkinter, 24-Byte-Frames), `sds_read_usb_receiver_gui.py` (defekter Import), unbenutzte Teile (`STOP_REQUESTED`, `USBPortManager`) | Verwechslungsgefahr beim Weiterentwickeln | behoben (T9) |
 | P15 | niedrig | 25 `__pycache__`-Dateien im Repository, keine `requirements.txt`, Tests nur als Skripte gegen COM5 | Build nicht reproduzierbar, keine automatischen Tests | behoben: `.gitignore`, `requirements.txt`, Tests ohne Hardware |
 | P16 | mittel | Wird USB getrennt, fängt der Reader die Ausnahme und versucht es endlos erneut; die GUI erfährt davon nichts | Die Anzeige bleibt „verbunden“ | behoben (T6) |
 | P17 | hoch | Die PC-Seite des Patents fehlt: Inter-Unit-Korrelation und Lokalisation (Teile von 126, 128), Candidate Report (130), Tracking-Einheit (150) und Feedback (Id 8) | FSL9 §6–10 und die Ansprüche 6–12 sind nicht umgesetzt (`Traceability_FSL9_PC.md`) | offen (T7, T8) |
-| P18 | niedrig | Die Firmware hat in CALIBRATE keine Funktion | Der Calibrate-Tab bleibt ohne Daten | offen (T10) |
+| P18 | niedrig | Die Firmware hat in CALIBRATE keine Funktion | Der Calibrate-Tab bleibt ohne Daten | behoben (T10): CALIBRATE verarbeitet wie DETECT, Tab Nordabgleich |
 | P19 | mittel | Es kann nur ein COM-Port bzw. eine Einheit verbunden werden | FSL9 verlangt N ≥ 2 Einheiten | offen (T7) |
 | P20 | hoch | Am Board fror die App beim Umschalten auf Read ein. `process_queue` leerte die Read-Queue ohne Zeitgrenze, und der Read-Tab baute je Nachricht Text neu auf. Bei ~3000 Nachrichten/s kam die GUI nicht mehr in die Ereignisschleife zurück. Außerdem beendet PyQt6 das Programm bei jeder nicht abgefangenen Ausnahme in einem Slot. | App friert ein bzw. bricht ab (Rückmeldung vom 28.09.2026) | behoben: Zeitbudget 15 ms je Poll, Read-Tab neu, begrenzte Queues, Schutz vor Meldungsfluten, `sys.excepthook` meldet Fehler im Status-Fenster statt abzubrechen. Test `test_read_load.py`; derselbe Test hängt mit dem alten Stand. |
 
@@ -183,6 +186,36 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
   - mehrere Spuren gleichzeitig;
   - die Vorhersage in der Firmware für das TDOA-Suchfenster nutzen (A34).
 
+## 3f. Umgesetzt: Aufräumen, Nordabgleich, Auslieferung (T9–T11, 28.09.2026)
+
+- **T9 Altbestand:**
+  - Gelöscht: `Safe/`, `srp_monitor.py`, `app/gui/sds_read_usb_receiver_gui.py`, `app/usb/usb_port_manager.py`, `STOP_REQUESTED`/`request_stop` im Modell.
+  - Die Hardware-Skripte liegen jetzt als `tools/hw_reader.py` und `tools/hw_writer.py` vor, der Port ist ein Argument.
+  - `tests/test_crc.py` ist jetzt ein pytest-Test: CRC eines aufgezeichneten Read-Frames, Parser nimmt ihn an und verwirft ihn nach einem gekippten Bit.
+- **T10 Nordabgleich (Tab Calibrate):**
+
+  ![Calibrate](gui_calibrate.png)
+
+  - **Firmware (SDS_110):**
+    - CALIBRATE verarbeitet wie DETECT und sendet Detect und UnitReport.
+    - Neues Kommando **Id 9** (i32 BE in 0,01°, ±180,00°): 128 addiert den Offset auf jede Peilung.
+    - Das LCD zeigt den Offset.
+    - Host-Test `t_azimuth` Teil 4.
+  - **Ablauf am PC:**
+    - Referenzquelle mit bekanntem Azimut.
+    - Peilungen der UnitReports für die Messdauer sammeln und zirkular mitteln (Streuung √(−2 ln R)).
+    - Neuer Offset o_neu = wrap180(o_alt + φ_ref − φ̄).
+    - Warnung bei < 10 Peilungen oder > 5° Streuung.
+  - **Speichern:** „Übernehmen“ sendet Id 9 und speichert den Offset (QSettings). Er wird bei jedem Verbinden erneut gesendet, weil die Firmware ihn nicht über einen Neustart hält.
+  - **Logik:** `app/calibration.py` ohne Qt. Tests in `test_calibration.py`: zirkulares Mittel über Nord, Offset, Messfenster, Warnungen, Bytes von Id 9, Tab, Speichern und Weiterleiten im Hauptfenster. Den Verbindungsablauf mit Id 9 prüft `test_loopback.py`.
+  - **Offen:** Pegel und Laufzeit je Mikrofon; die Messung am Board (SDS_110 Offene Punkte 23).
+- **T11 Auslieferung:**
+  - Version `app/__version__` = 1.11, angezeigt im Fenstertitel und im Bedienfeld.
+  - Startskripte `start_monitor.bat` (Windows, legt `.venv` an) und `start_monitor.sh`.
+  - README neu.
+  - GitHub Actions `.github/workflows/tests.yml`: pytest offscreen unter Python 3.10 und 3.12.
+  - `.gitattributes` (CRLF für `.bat`).
+
 ## 4. ToDo-Liste
 
 | Nr. | Prio | Aufgabe | Befunde | Aufwand |
@@ -195,6 +228,6 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 | T6 | erledigt | Einen USB-Abbruch erkennen: Reader meldet den Abbruch, der Schalter geht auf Off, Fehlermeldung | P16 | klein |
 | T7 | hoch | Mehrere Einheiten: je Einheit ein Port bzw. eine Unit-ID, Positionen konfigurierbar. PC-Teil von 126 und 128 (Multilateration N ≥ 3, gemeinsamer Modus N = 2) und Candidate Report (130). Dafür muss die Firmware Spektren oder TDOA je Einheit liefern (Architektur klären). | P17, P19 | groß |
 | T8 | erledigt | Tracking-Einheit (150) als eigenes Modul: ŝ mit α = 0,2, Kalman-Filter mit konstanter Geschwindigkeit, Kosinus > 0,7, χ²-Gate, Bestätigung nach 3 Reports, Ende nach 2 s, Ausgabe der Trajektorie, Feedback Id 8 an das Board | P17 | groß |
-| T9 | niedrig | Altbestand entfernen oder nach `legacy/` verschieben; Hardware-Testskripte nach `tools/` | P14 | klein |
-| T10 | niedrig | Inhalt des Calibrate-Tabs festlegen, sobald die Firmware CALIBRATE umsetzt (Pegel und Laufzeit je Mikrofon, Nordrichtung) | P18 | offen |
-| T11 | niedrig | README (Start, Abhängigkeiten), Versionsnummer, Start-Skript für Windows; pytest in der CI | – | klein |
+| T9 | erledigt | Altbestand entfernen; Hardware-Testskripte nach `tools/` | P14 | klein |
+| T10 | erledigt | Calibrate-Tab: Nordabgleich mit Referenzquelle, Offset über Id 9 (Firmware: CALIBRATE verarbeitet wie DETECT). Pegel und Laufzeit je Mikrofon bleiben offen | P18 | mittel |
+| T11 | erledigt | README (Start, Abhängigkeiten), Versionsnummer, Start-Skript für Windows; pytest in der CI | – | klein |

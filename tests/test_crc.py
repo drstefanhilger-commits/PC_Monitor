@@ -1,26 +1,40 @@
+"""CRC32 der SDS→PC-Nachrichten (ICD 3.1): zlib-CRC über Kopf + Nutzdaten, little-endian angehängt."""
 import binascii
 
-print("Running CRC test...")
+from app.usb.sds_parser import SDSParser
 
-hex_str = (
-    "EFBEADDE"      # magic
-    "14020002"      # len_id (len=532, id=2)
-    "4E61BC00"      # timestamp = 12345678
-    "0000"          # micNr
-    "0000"          # frameNr
-    + "00" * (128 * 4)  # payload (128 * uint32 = 512 bytes)
-    + "1DFACD1C"    # CRC32 (little endian)
-)
+# Read-Nachricht (Id 2, 532 Byte) mit Nullnutzdaten, CRC aus einem Mitschnitt der Firmware
+HEX = ("EFBEADDE"          # Magic
+       "14020002"          # len_id (len = 532, id = 2)
+       "4E61BC00"          # Zeitstempel
+       "0000" "0000"       # micNr, frameNr
+       + "00" * 512        # 128 × uint32
+       + "1DFACD1C")       # CRC32 little-endian
 
-data = bytes.fromhex(hex_str)
 
-crc_expected = int.from_bytes(data[-4:], "little")
-crc_calc = binascii.crc32(data[:-4]) & 0xFFFFFFFF
+def test_crc_matches_recorded_frame():
+    data = bytes.fromhex(HEX)
+    assert len(data) == 532
+    assert binascii.crc32(data[:-4]) & 0xFFFFFFFF == int.from_bytes(data[-4:], "little")
 
-print("Expected CRC32:", hex(crc_expected))
-print("Calculated CRC32:", hex(crc_calc))
 
-if crc_expected == crc_calc:
-    print("CRC MATCH ✓")
-else:
-    print("CRC MISMATCH ✗")
+def _items(data: bytes):
+    p = SDSParser()
+    p.feed(data)
+    out = []
+    while (it := p.next_item()) is not None:
+        out.append(it)
+    return out
+
+
+def test_parser_accepts_recorded_frame():
+    data = bytes.fromhex(HEX)
+    assert [(k, i) for k, i, *_ in _items(data)] == [("frame", 2)]
+
+
+def test_parser_rejects_corrupted_crc():
+    data = bytearray.fromhex(HEX)
+    data[100] ^= 0x01
+    items = _items(bytes(data))
+    assert not any(k == "frame" for k, *_ in items)
+    assert any(k == "error" and "CRC" in str(r) for k, _raw, r in items)
