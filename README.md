@@ -39,11 +39,12 @@ python -m app.main
 - **Sync:** sendet UTC und Lufttemperatur.
   - Gesendet wird beim Verbinden, jede Minute und wenn sich die Temperatur ändert.
   - Ohne Haken bei „Temp.“ gilt die Temperatur als unbekannt.
-- **Tracking:** Die Tracking-Einheit bildet aus den Reports eine Spur (grün im Lageplan).
+- **Tracking:** Die Tracking-Einheit bildet aus den Reports eine Spur. Der Lageplan zeigt die letzten 10 Punkte grün; der CSV-Export enthält alle.
   - „Feedback“ sendet ŝ und die Vorhersage an das Board (Id 8).
   - „Trajektorie als CSV …“ speichert die Spuren.
 - **Unten:** Status- und Fehlermeldungen.
   - Zähler RX/TX/Fehler.
+  - „Leeren“ löscht Meldungen und Zähler.
   - Meldungen des Boards (Logger) erscheinen als „SDS: …“.
 
 ![Detect](docs/gui_detect.png)

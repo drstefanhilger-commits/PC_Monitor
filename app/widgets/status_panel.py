@@ -27,6 +27,7 @@ class StatusPanel(QWidget):
         top = QHBoxLayout()
         self.stats_label = QLabel()
         self.btn_clear = QPushButton("Leeren")
+        self.btn_clear.setToolTip("Meldungen und Zähler RX/Fehler/TX löschen")
         self.btn_clear.clicked.connect(self.clear)
         top.addWidget(QLabel("<b>Status / Fehler</b>"))
         top.addSpacing(12)
@@ -65,7 +66,11 @@ class StatusPanel(QWidget):
         self.text.ensureCursorVisible()
 
     def clear(self):
+        """Meldungen und Zähler (RX, Fehler, TX) löschen."""
         self.text.clear()
+        self._count, self._suppressed = 0, 0
+        self.model.reset_stats()
+        self.update_stats()
 
     def update_stats(self):
         m = self.model

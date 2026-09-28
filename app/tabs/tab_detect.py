@@ -16,6 +16,7 @@ from app.usb.messages import BAND_LO_HZ, BAND_WIDTH_HZ, N_BANDS, UnitReport
 
 RANGES_M = (25, 50, 100, 200, 500, 1000, 2000, 5000)     # Anzeigeradien (automatisch gewählt)
 TRAIL = 60                                               # zuletzt angezeigte Positionen
+TRACK_SHOWN = 10                                         # angezeigte Punkte der Spur (Export: alle)
 HISTORY = 200
 
 
@@ -181,7 +182,7 @@ class TabDetect(QWidget):
             self.track_label.setText(f"Spur: keine   (beendet: {len(tracker.finished)})")
             self.track_label.setStyleSheet("font-weight: bold; color: gray;")
             return
-        pts = t.trajectory
+        pts = t.trajectory[-TRACK_SHOWN:]
         if pts:
             self.track_line.setData([p.x for p in pts], [p.y for p in pts])
         else:
@@ -195,7 +196,7 @@ class TabDetect(QWidget):
                 gate += f"  verworfen ({decision.reason})"
         if t.confirmed:
             self.track_label.setText(
-                f"Spur: bestätigt · {len(pts)} Punkte · {p.speed_ms:.1f} m/s · Kurs {p.course_deg:.0f}°{gate}")
+                f"Spur: bestätigt · {len(t.trajectory)} Punkte · {p.speed_ms:.1f} m/s · Kurs {p.course_deg:.0f}°{gate}")
             self.track_label.setStyleSheet("font-weight: bold; color: #2e7d32;")
         else:
             self.track_label.setText(f"Spur: vorläufig ({t.hits}/3){gate}")
