@@ -1,8 +1,14 @@
 """
 Read-Tab (Betriebsart READ, SDS_110 doc/ICD_SDS_PC_Monitor.md 5.3)
 
-Jede Read-Nachricht (Id 2, 532 Byte) enthält 128 Samples **eines** Mikrofons (micNr 0…7) für
-Block frameNr 0…11 eines Hops (1536 Samples, 32 ms), als int32 skaliert auf 24 Bit (±2²³).
+Jede Read-Nachricht (Id 2, 532 Byte) enthält 128 **Rohsamples** (vor der Vorverarbeitung 118)
+**eines** Mikrofons (micNr 0…7) für Block blockNr 0…11 des Hops hopNr (1536 Samples, 32 ms), als
+int32 mit 24 Bit (±2²³). Kopf seit 28.09.2026: [8] ts u32, [12] mic u8, [13] block u8, [14] hop u16.
+Über hopNr werden fehlende Hops gezählt (USB Full Speed reicht nicht für alle 96 Nachrichten je Hop).
+
+Aufnahme: vollständige Hops als WAV, 8 Kanäle, 24 Bit, 48 kHz – direkt für SDS_110
+tools/features/sds_features. Fehlende oder unvollständige Hops werden als Stille geschrieben
+(höchstens MAX_FILL_HOPS am Stück), damit die Zeitachse stimmt, und gezählt.
 Im Modus READ kommen ~3000 Nachrichten/s: update_frame() legt die Samples nur in den Hop-Puffer
 (billig); gezeichnet wird mit höchstens REFRESH_HZ und nur, wenn der Tab sichtbar ist.
 
@@ -12,11 +18,12 @@ erscheint). Markiert ist der Bereich der Analysebänder 80 Hz … 4 kHz (FSL9 §
 """
 import struct
 import time
+import wave
 
 import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QComboBox, QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 N_MICS = 8
 BLOCK = 128
@@ -26,7 +33,8 @@ FULL_SCALE = float(1 << 23)
 FRAME_LEN = 532
 SAMPLE_RATE = 48000
 BAND_LO_HZ, BAND_HI_HZ = 80.0, 4000.0
-SPEC_MAX_HZ = 8000.0                          # Bandpass der Vorverarbeitung 118: 80 Hz … 8 kHz
+SPEC_MAX_HZ = 24000.0                         # Rohdaten: bis zur Nyquist-Frequenz
+MAX_FILL_HOPS = 31                            # Aufnahme: längste Lücke, die mit Stille gefüllt wird (≈ 1 s)
 WINDOW = np.hanning(HOP)
 FREQS = np.fft.rfftfreq(HOP, 1.0 / SAMPLE_RATE)
 
@@ -39,8 +47,13 @@ class TabRead(QWidget):
         self.samples = np.zeros((N_MICS, HOP), dtype=np.int32)
         self.filled = np.zeros((N_MICS, BLOCKS_PER_HOP), dtype=bool)
         self.last_ts = None
+        self.hop = None                           # Hop-Nummer im Puffer
+        self.missing_hops = 0                     # über hopNr erkannte Lücken
         self.frames = 0
         self.bad = 0
+        self._wav = None                          # laufende Aufnahme
+        self.rec_path = None
+        self.rec_hops = self.rec_filled = 0
         self._rate_t0, self._rate_n, self.rate = time.monotonic(), 0, 0.0
         self._dirty = False
 
@@ -52,6 +65,10 @@ class TabRead(QWidget):
         self.mic_combo.setCurrentIndex(N_MICS)
         self.mic_combo.currentIndexChanged.connect(lambda _: self._mark())
         top.addWidget(self.info_label, 1)
+        self.rec_btn = QPushButton("Aufnahme …")
+        self.rec_btn.setToolTip("Rohdaten als WAV (8 Kanäle, 24 Bit, 48 kHz) für sds_features")
+        self.rec_btn.clicked.connect(self.toggle_recording)
+        top.addWidget(self.rec_btn)
         top.addWidget(QLabel("Wellenform/Spektrum:"))
         top.addWidget(self.mic_combo)
         lay.addLayout(top)
@@ -82,7 +99,7 @@ class TabRead(QWidget):
         # Spektrum des Hops
         self.spec_plot = pg.PlotWidget()
         ps = self.spec_plot.getPlotItem()
-        ps.setTitle("Spektrum (Hann, 31,25 Hz je Bin); markiert: Analysebänder 80 Hz – 4 kHz")
+        ps.setTitle("Spektrum der Rohdaten (Hann, 31,25 Hz je Bin); markiert: Analysebänder 80 Hz – 4 kHz")
         ps.setLabel("left", "dBFS")
         ps.setLabel("bottom", "Frequenz", units="Hz")
         self.spec_plot.setXRange(0, SPEC_MAX_HZ)
@@ -104,12 +121,13 @@ class TabRead(QWidget):
         if len(frame) != FRAME_LEN:
             self.bad += 1
             return False
-        ts, mic, block = struct.unpack_from("<IHH", frame, 8)
+        ts, mic, block, hop = struct.unpack_from("<IBBH", frame, 8)
         if mic >= N_MICS or block >= BLOCKS_PER_HOP:
             self.bad += 1
             return False
-        if ts != self.last_ts:                    # neuer Hop
-            self.last_ts = ts
+        if hop != self.hop:                       # neuer Hop
+            self._finish_hop(hop)
+            self.hop, self.last_ts = hop, ts
             self.filled[:] = False
         self.samples[mic, block * BLOCK:(block + 1) * BLOCK] = np.frombuffer(frame, dtype="<i4", count=BLOCK, offset=16)
         self.filled[mic, block] = True
@@ -117,6 +135,62 @@ class TabRead(QWidget):
         self._rate_n += 1
         self._dirty = True
         return True
+
+    def _finish_hop(self, next_hop: int):
+        """Hop im Puffer abschließen: Lücke bis next_hop zählen, bei Aufnahme schreiben."""
+        if self.hop is None:
+            return
+        gap = ((next_hop - self.hop) & 0xFFFF) - 1
+        if 0 < gap < 0x8000:                      # rückwärts (Neustart des Boards) zählt nicht
+            self.missing_hops += gap
+        if self._wav is not None:
+            complete = bool(self.filled.all())
+            self._write_hop(self.samples if complete else None)
+            for _ in range(min(max(gap, 0), MAX_FILL_HOPS) if gap < 0x8000 else 0):
+                self._write_hop(None)
+
+    def _write_hop(self, samples):
+        if samples is None:
+            self.rec_filled += 1
+            samples = np.zeros((N_MICS, HOP), dtype=np.int32)
+        pcm = np.ascontiguousarray(samples.T).astype("<i4").view(np.uint8).reshape(-1, 4)[:, :3]
+        self._wav.writeframes(pcm.tobytes())
+        self.rec_hops += 1
+
+    def start_recording(self, path: str):
+        w = wave.open(path, "wb")
+        w.setnchannels(N_MICS)
+        w.setsampwidth(3)
+        w.setframerate(SAMPLE_RATE)
+        self._wav, self.rec_path = w, path
+        self.rec_hops = self.rec_filled = 0
+        self.rec_btn.setText("Aufnahme stoppen")
+        self._dirty = True
+
+    def stop_recording(self):
+        """Aufnahme beenden (der laufende Hop wird mitgeschrieben); Rückgabe: (Hops, davon Stille)."""
+        if self._wav is None:
+            return 0, 0
+        if self.hop is not None:
+            self._write_hop(self.samples if self.filled.all() else None)
+            self.hop = None                       # nicht ein zweites Mal schreiben
+        self._wav.close()
+        self._wav = None
+        self.rec_btn.setText("Aufnahme …")
+        self._dirty = True
+        return self.rec_hops, self.rec_filled
+
+    @property
+    def recording(self) -> bool:
+        return self._wav is not None
+
+    def toggle_recording(self):
+        if self.recording:
+            self.stop_recording()
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Rohdaten aufnehmen", "sds_read.wav", "WAV (*.wav)")
+        if path:
+            self.start_recording(path)
 
     def _mark(self):
         self._dirty = True
@@ -160,6 +234,10 @@ class TabRead(QWidget):
                 c.setData([], [])
                 sc.setData([], [])
         complete = int(self.filled.sum())
+        rec = ""
+        if self.recording:
+            rec = f"   ● Aufnahme {self.rec_hops * HOP / SAMPLE_RATE:.1f} s (Stille {self.rec_filled} Hops)"
         self.info_label.setText(
-            f"Hop t = {self.last_ts} ms   Blöcke {complete}/{N_MICS * BLOCKS_PER_HOP}   "
-            f"{self.rate:.0f} Nachrichten/s   empfangen {self.frames}   ungültig {self.bad}")
+            f"Hop {self.hop} (t = {self.last_ts} ms)   Blöcke {complete}/{N_MICS * BLOCKS_PER_HOP}   "
+            f"fehlende Hops {self.missing_hops}   {self.rate:.0f} Nachrichten/s   empfangen {self.frames}   "
+            f"ungültig {self.bad}{rec}")

@@ -241,6 +241,16 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 - **Tests:** `test_position.py` (Eingabe, Bytes, Id 6, Umrechnung gegen Haversine, Hauptfenster, CSV); `test_loopback.py` prüft Id 10 beim Verbinden.
 - **Offen:** relative Positionen mehrerer Einheiten und deren Nutzung in der Lokalisation (T7).
 
+## 3h. Umgesetzt: Rohdaten im Tab Read (SDS_110 Befund 35, 28.09.2026)
+
+- **Firmware:** READ sendet Rohdaten vor 118; im Kopf stehen jetzt micNr u8, blockNr u8 und hopNr u16 (ICD 5.3).
+- **Tab Read:**
+  - liest das neue Kopfformat und erkennt einen neuen Hop an der Hop-Nummer statt am Zeitstempel;
+  - zählt fehlende Hops, auch über den Überlauf 65535 → 0; rückwärts (Board-Neustart) zählt nicht;
+  - zeigt das Spektrum bis 24 kHz.
+- **Aufnahme:** WAV mit 8 Kanälen, 24 Bit, 48 kHz. Fehlende und unvollständige Hops werden als Stille geschrieben (höchstens 31 am Stück) und gezählt. Geprüft: SDS_110 `sds_features` liest die Datei.
+- **Tests:** `test_read_record.py` (Kopf, Lücken, WAV-Inhalt); `test_read_load.py` mit fortlaufenden Hop-Nummern.
+
 ## 4. ToDo-Liste
 
 | Nr. | Prio | Aufgabe | Befunde | Aufwand |

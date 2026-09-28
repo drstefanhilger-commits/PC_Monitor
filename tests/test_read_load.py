@@ -20,14 +20,14 @@ from app.usb.usb_reader import USBReader
 from tests import sds_frames as F
 
 
-def make_hop(ts, amp):
+def make_hop(ts, amp, hop=0):
     """8 Mikrofone × 12 Blöcke; Mikrofon m: Sinus mit Amplitude amp[m] (Anteil der Vollaussteuerung)."""
     n = np.arange(1536)
     out = []
     for m in range(8):
         x = (amp[m] * FULL_SCALE * np.sin(2 * np.pi * 500 * n / 48000)).astype(np.int32)
         for b in range(12):
-            out.append(F.read_block(mic=m, block=b, samples=x[b * BLOCK:(b + 1) * BLOCK].tolist(), ts=ts))
+            out.append(F.read_block(mic=m, block=b, samples=x[b * BLOCK:(b + 1) * BLOCK].tolist(), ts=ts, hop=hop))
     return b"".join(out)
 
 
@@ -38,7 +38,7 @@ def test_read_mode_under_board_load():
     w.controls.mode_dial.set_mode(SDSMode.READ)
     reader = USBReader(None, w.model)
     amp = [0.5 / 2 ** m for m in range(8)]                # -9 dB ... -51 dB (RMS)
-    hops = [make_hop(32 * i, amp) for i in range(4)]
+    hops = [make_hop(32 * i, amp, hop=i) for i in range(64)]      # fortlaufende Hop-Nummern
     stop = threading.Event()
     sent = [0]
 
@@ -46,7 +46,7 @@ def test_read_mode_under_board_load():
         t_next = time.monotonic()
         i = 0
         while not stop.is_set():
-            reader.handle_bytes(hops[i % 4]); sent[0] += 96; i += 1
+            reader.handle_bytes(hops[i % 64]); sent[0] += 96; i += 1
             t_next += 0.032
             time.sleep(max(0.0, t_next - time.monotonic()))
 
@@ -80,6 +80,7 @@ def test_read_mode_under_board_load():
     exp = 20 * np.log10(np.array(amp) / np.sqrt(2))
     assert np.allclose(lv, exp, atol=0.1), (lv, exp)
     assert "Blöcke 96/96" in w.read_tab.info_label.text()
+    assert w.read_tab.missing_hops == 0 and "fehlende Hops 0" in w.read_tab.info_label.text()
     w.close()
 
 
