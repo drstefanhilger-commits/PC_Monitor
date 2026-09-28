@@ -127,7 +127,7 @@ def test_unit_report_and_logger_display(win):
     win.model.unit_queue.put((5, F.message(5, F.UNIT_REPORT_PAYLOAD_FW)))
     win.model.log_queue.put((99, F.message(99, b"124: Modell ok\n")))
     win.process_queue()
-    assert "0x1234" in win.detect_tab.unit_label.text()
+    assert "Unit 4660 " in win.detect_tab.unit_label.text()          # dezimal
     assert "2026-09-28 12:00:00.155456 UTC" in win.detect_tab.unit_label.text()
     assert "Paare 27" in win.detect_tab.unit_label.text()
     assert "SDS: 124: Modell ok" in win.status.text.toPlainText()

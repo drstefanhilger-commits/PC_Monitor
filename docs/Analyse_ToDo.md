@@ -216,6 +216,10 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
   - GitHub Actions `.github/workflows/tests.yml`: pytest offscreen unter Python 3.10 und 3.12.
   - `.gitattributes` (CRLF für `.bat`).
 
+- **Nachtrag (Rückmeldung vom Board, 28.09.2026):**
+  - Die Unit-ID wird jetzt dezimal angezeigt: Eingabefeld, UnitReport-Zeile und SDS_110-LCD.
+  - Unit-ID (Id 5) und SRP (Id 6) blieben am Board ohne Wirkung. Der PC sendet die Bytes richtig (Prüfung über pty). Ursache in der Firmware: Bei laufendem Feedback (Id 8, bis 31/s) fasst Windows die Schreibvorgänge zu einem USB-Paket zusammen, und die Firmware wertete nur das erste Kommando je Paket aus (SDS_110 Befund 32). Behoben in SDS_110 mit `CommandAssembler`.
+
 ## 4. ToDo-Liste
 
 | Nr. | Prio | Aufgabe | Befunde | Aufwand |
