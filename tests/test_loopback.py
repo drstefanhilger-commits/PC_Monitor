@@ -1,0 +1,68 @@
+"""
+Verbindungsweg über einen virtuellen seriellen Port (pty, nur Linux/macOS), ohne Board:
+Schalter On -> Board erhält Simulation + Mode; ein Detect-Frame des "Boards" erreicht den Detect-Tab.
+Aufruf: QT_QPA_PLATFORM=offscreen python -m pytest tests/test_loopback.py
+"""
+import os
+import struct
+import sys
+import time
+import zlib
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest
+
+pytestmark = pytest.mark.skipif(sys.platform.startswith("win"), reason="pty nur unter Linux/macOS")
+
+from PyQt6.QtWidgets import QApplication
+
+from app.gui.main_window import MainWindow
+from app.model.SDSUSBModel import SDSMode
+
+
+def detect_frame(azi=42.0, dist=80.0, conf=0.9):
+    body = struct.pack("<IIIIfff", 0xDEADBEEF, (1 << 24) | 32, 1234, 7, azi, dist, conf)
+    return body + struct.pack("<I", zlib.crc32(body) & 0xFFFFFFFF)
+
+
+def read_exact(fd, n, timeout=2.0):
+    buf, t0 = b"", time.time()
+    while len(buf) < n and time.time() - t0 < timeout:
+        try:
+            buf += os.read(fd, n - len(buf))
+        except BlockingIOError:
+            time.sleep(0.01)
+    return buf
+
+
+def test_power_on_sends_state_and_receives_detect():
+    import tty
+    app = QApplication.instance() or QApplication([])
+    master, slave = os.openpty()
+    tty.setraw(master); tty.setraw(slave)
+    os.set_blocking(master, False)
+    w = MainWindow()
+    w.timer.stop()
+    try:
+        w.controls.port_combo.addItem(os.ttyname(slave))
+        w.controls.port_combo.setCurrentText(os.ttyname(slave))
+        w.controls.mode_dial.set_mode(SDSMode.READ, emit=False)
+        w.controls.sw_power.click()
+        assert w.controls.sw_power.isChecked()
+        cmds = read_exact(master, 32)
+        assert cmds[:12] == bytes.fromhex("DEADBEEF03000010" "00000001")      # Simulation
+        assert cmds[16:28] == bytes.fromhex("DEADBEEF02000010" "00000003")    # READ = 3
+
+        os.write(master, detect_frame())
+        t0 = time.time()
+        while w.model.stats_detect == 0 and time.time() - t0 < 2:
+            app.processEvents(); w.process_queue(); time.sleep(0.02)
+        assert w.model.stats_detect == 1
+
+        w.controls.sw_power.click()
+        assert not w.controls.sw_power.isChecked() and w.reader is None
+    finally:
+        w.disconnect_usb()
+        w.close()
+        os.close(master); os.close(slave)
