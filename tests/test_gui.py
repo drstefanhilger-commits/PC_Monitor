@@ -132,3 +132,16 @@ def test_unit_report_and_logger_display(win):
     assert "Paare 27" in win.detect_tab.unit_label.text()
     assert "SDS: 124: Modell ok" in win.status.text.toPlainText()
     assert win.model.stats_unit == 1 and win.model.stats_log == 1 and win.model.stats_rejected == 0
+
+
+def test_clear_resets_messages_and_counters(win):
+    win.model.stats_total, win.model.stats_rejected, win.model.stats_sent_total = 12, 3, 5
+    win.model.stats_detect = 9
+    win.status.log("Testmeldung", "ERROR")
+    win.status.update_stats()
+    assert "RX 12" in win.status.stats_label.text()
+    win.status.btn_clear.click()
+    assert win.status.text.toPlainText() == ""
+    m = win.model
+    assert (m.stats_total, m.stats_detect, m.stats_rejected, m.stats_sent_total) == (0, 0, 0, 0)
+    assert "RX 0" in win.status.stats_label.text() and "Fehler 0" in win.status.stats_label.text()

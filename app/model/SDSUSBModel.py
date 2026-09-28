@@ -75,20 +75,7 @@ class SDSUSBModel:
         # ------------------------------------------------------------
         # Inspector statistics (empfangen)
         # ------------------------------------------------------------
-        self.stats_total = 0
-        self.stats_detect = 0
-        self.stats_read = 0
-        self.stats_unit = 0
-        self.stats_log = 0
-        self.stats_rejected = 0
-        self.stats_unknown = 0
-        self.stats_corrupt = 0
-
-        # ------------------------------------------------------------
-        # Send-Statistik
-        # ------------------------------------------------------------
-        self.stats_sent_total = 0
-        self.stats_sent_by_id = {int(c): 0 for c in SDSCommand}
+        self.reset_stats()
         self.last_sent_frame = None
         self.last_sent_msg_id = None
 
@@ -123,6 +110,22 @@ class SDSUSBModel:
     # ------------------------------------------------------------
     def update_raw_frame(self, raw: bytes):
         self.last_raw_frame = raw
+
+    def reset_stats(self):
+        """Zähler RX (je Art), Fehler und TX auf 0 (Knopf „Leeren“ im Status-Fenster)."""
+        self.stats_total = 0
+        self.stats_detect = 0
+        self.stats_read = 0
+        self.stats_unit = 0
+        self.stats_log = 0
+        self.stats_rejected = 0
+        self.stats_unknown = 0
+        self.stats_corrupt = 0
+        self.stats_sent_total = 0
+        self.stats_sent_by_id = {int(c): 0 for c in SDSCommand}
+        if hasattr(self, "_dropped_lock"):
+            with self._dropped_lock:
+                self._dropped = 0
 
     # ------------------------------------------------------------
     # Queues leeren

@@ -218,6 +218,9 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 
 - **Nachtrag (Rückmeldung vom Board, 28.09.2026):**
   - Die Unit-ID wird jetzt dezimal angezeigt: Eingabefeld, UnitReport-Zeile und SDS_110-LCD.
+  - „Leeren“ im Status-Fenster löscht auch die Zähler RX/Fehler/TX (`SDSUSBModel.reset_stats`).
+  - Der Lageplan zeigt von der Spur nur die letzten 10 Punkte (`TRACK_SHOWN`); die Zahl der Punkte in der Spurzeile und der CSV-Export umfassen weiter die ganze Spur.
+  - Zurückgestellt: Unit-ID speichern und beim Verbinden senden, die vom Board gemeldete ID im Bedienfeld anzeigen.
   - Unit-ID (Id 5) und SRP (Id 6) blieben am Board ohne Wirkung. Der PC sendet die Bytes richtig (Prüfung über pty). Ursache in der Firmware: Bei laufendem Feedback (Id 8, bis 31/s) fasst Windows die Schreibvorgänge zu einem USB-Paket zusammen, und die Firmware wertete nur das erste Kommando je Paket aus (SDS_110 Befund 32). Behoben in SDS_110 mit `CommandAssembler`.
 
 ## 4. ToDo-Liste
