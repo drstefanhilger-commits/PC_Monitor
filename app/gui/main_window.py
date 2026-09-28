@@ -168,6 +168,8 @@ class MainWindow(QMainWindow):
         self.writer = USBWriter(self.ser, self.model)
         self.reader.log_signal.connect(lambda m: self.status.log(m, "WARN"))
         self.writer.log_signal.connect(lambda m: self.status.log(m, "TX" if m.startswith("TX") else "WARN"))
+        self.reader.connection_lost.connect(self.on_connection_lost)     # Qt: in den GUI-Thread
+        self.writer.connection_lost.connect(self.on_connection_lost)
         self.reader.start()
         self.writer.start()
         self.controls.set_connected(True, f"verbunden: {port}")
@@ -180,7 +182,17 @@ class MainWindow(QMainWindow):
         self.send_sync()
         self.sync_timer.start(self.SYNC_PERIOD_MS)
 
-    def disconnect_usb(self):
+    def on_connection_lost(self, reason: str):
+        """USB-Verbindung abgebrochen (T6): trennen, Schalter auf Off, Ports neu einlesen."""
+        if self.ser is None:              # schon getrennt (Reader und Writer melden beide)
+            return
+        port = self.model.port
+        self.status.log(f"USB-Verbindung zu {port} verloren ({reason})", "ERROR")
+        self.disconnect_usb(quiet=True)
+        self.controls.set_connected(False, "Verbindung verloren")
+        self.controls.refresh_ports()
+
+    def disconnect_usb(self, quiet: bool = False):
         self.sync_timer.stop()
         for t in (self.reader, self.writer):
             if t:
@@ -195,7 +207,7 @@ class MainWindow(QMainWindow):
         self.ser = self.reader = self.writer = None
         self.model.set_connected(False)
         self.controls.set_connected(False, "getrennt")
-        if was:
+        if was and not quiet:
             self.status.log("Verbindung getrennt")
 
     # ------------------------------------------------------------

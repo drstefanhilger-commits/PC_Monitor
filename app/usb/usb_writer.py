@@ -1,5 +1,7 @@
 import queue
 import time
+
+import serial
 from PyQt6.QtCore import QThread, pyqtSignal
 
 
@@ -9,9 +11,11 @@ class USBWriter(QThread):
     - Thread-sicheres Schreiben über eine Queue
     - send_mode() erzeugt SDS MODE Frames über das Model
     - log_signal liefert thread-safe Logs an den Logger
+    - Schreibfehler der Schnittstelle (USB gezogen) -> connection_lost(Grund), Thread endet
     """
 
     log_signal = pyqtSignal(str)
+    connection_lost = pyqtSignal(str)
 
     def __init__(self, ser, model):
         super().__init__()
@@ -35,6 +39,11 @@ class USBWriter(QThread):
             try:
                 self.ser.write(packet)
                 time.sleep(0.002)  # deterministisches pacing
+            except (serial.SerialException, OSError) as e:
+                if self.running:
+                    self.running = False
+                    self.connection_lost.emit(f"Schreibfehler: {e}")
+                return
             except Exception as e:
                 self.log_signal.emit(f"[USBWriter] Schreibfehler: {e}")
                 time.sleep(0.05)
