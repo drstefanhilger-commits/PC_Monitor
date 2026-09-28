@@ -114,7 +114,11 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
   - Ablauf: 96 Nachrichten je 32 ms für 2 s, während die Ereignisschleife läuft.
   - Ergebnis: Alle 6048 Nachrichten kommen an, ein Poll dauert höchstens 1,2 ms, die Ereignisschleife pausiert höchstens 32 ms, und die Pegel stimmen auf 0,1 dB.
   - Gegenprobe: Mit dem alten Stand hängt derselbe Test.
-- **Offen aus T4:** ein Spektrum je Mikrofon.
+- **Spektrum (ergänzt):**
+  - Hann-Fenster über den Hop (1536 Punkte, 31,25 Hz je Bin), Anzeige 0–8 kHz in dBFS.
+  - Normiert so, dass ein Sinus mit Amplitude A als 20·log10(A) erscheint.
+  - Markiert ist der Bereich der Analysebänder 80 Hz – 4 kHz.
+  - Test: Spitze auf der richtigen Frequenz und mit dem richtigen Pegel (± 0,1 dB) für 8 Mikrofone.
 
 ![Read](gui_read.png)
 
@@ -125,7 +129,7 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 | T1 | erledigt | Den Reader auf `SDSParser` umstellen: Byte-Resync auf das Magic, Längengrenzen je Id, CRC prüfen, Zähler je Fehlerart | P3, P4, P5, P12 | klein |
 | T2 | erledigt | UnitReport Id 5 parsen: µs-Zeit und Quelle, Paare, Residuum, Bänder mit p_b, Anzeige im Detect-Tab (Balken p_b je Band). Logger Id 99 als INFO ins Status-Fenster. | P6 | mittel |
 | T3 | erledigt | Sync Id 7 senden: beim Verbinden und dann jede Minute, UTC in µs und Temperatur aus einem Eingabefeld (später Sensor). Außerdem Unit-ID Id 5 und einen Schalter SRP-Referenz Id 6 ins Bedienfeld. | P7 | klein |
-| T4 | erledigt (ohne Spektrum) | Den Read-Tab neu bauen: Hop aus 8 × 12 Blöcken zusammensetzen, int32 lesen, Pegel je Mikrofon in dBFS, Wellenform und Spektrum. Anzeige mit höchstens 10 Hz, Queues begrenzen. | P10, P11 | mittel |
+| T4 | erledigt | Den Read-Tab neu bauen: Hop aus 8 × 12 Blöcken zusammensetzen, int32 lesen, Pegel je Mikrofon in dBFS, Wellenform und Spektrum. Anzeige mit höchstens 10 Hz, Queues begrenzen. | P10, P11 | mittel |
 | T5 | mittel | Azimut-Konvention mit der Firmware festlegen (FSL9 A28: ab Nord). Detect-Plot danach ausrichten, Achsen automatisch skalieren, Verlauf der Ziele. | P8, P9 | klein |
 | T6 | mittel | Einen USB-Abbruch erkennen: Reader meldet den Abbruch, der Schalter geht auf Off, Fehlermeldung | P16 | klein |
 | T7 | hoch | Mehrere Einheiten: je Einheit ein Port bzw. eine Unit-ID, Positionen konfigurierbar. PC-Teil von 126 und 128 (Multilateration N ≥ 3, gemeinsamer Modus N = 2) und Candidate Report (130). Dafür muss die Firmware Spektren oder TDOA je Einheit liefern (Architektur klären). | P17, P19 | groß |
