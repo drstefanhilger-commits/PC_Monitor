@@ -84,8 +84,6 @@ class ControlPanel(QWidget):
         row.addWidget(QLabel("Unit-ID"))
         self.unit_spin = QSpinBox()
         self.unit_spin.setRange(0, 0xFFFF)
-        self.unit_spin.setDisplayIntegerBase(16)
-        self.unit_spin.setPrefix("0x")
         self.btn_unit = QPushButton("Setzen")
         self.btn_unit.clicked.connect(lambda: self.unit_id_set.emit(self.unit_spin.value()))
         row.addWidget(self.unit_spin, 1)

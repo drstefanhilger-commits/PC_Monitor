@@ -207,7 +207,7 @@ class TabDetect(QWidget):
         if len(r.bands) > 6:
             bands += f", … ({len(r.bands)})"
         self.unit_label.setText(
-            f"UnitReport  Unit 0x{r.unit:04X}   {r.time_text()}  [{r.source_name}]\n"
+            f"UnitReport  Unit {r.unit}   {r.time_text()}  [{r.source_name}]\n"
             f"Peilung {r.bearing_deg:.1f}°   Paare {r.pairs}   Residuum {r.residual_s * 1e6:.1f} µs   "
             f"Pegel {r.level:.3g}   Bänder: {bands or '–'}")
         self.state_bars.setOpts(height=np.array(r.state_vector()))
