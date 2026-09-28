@@ -45,7 +45,8 @@ def test_track_feedback_timeout_export(qapp, tmp_path):
     assert t is not None and t.confirmed and len(t.trajectory) == 38
     assert "bestätigt · 38 Punkte" in w.detect_tab.track_label.text()
     xs, ys = w.detect_tab.track_line.getData()
-    assert len(xs) == 10 and xs[-1] == t.trajectory[-1].x      # Anzeige: nur die letzten 10 Punkte
+    from app.tabs.tab_detect import TRACK_SHOWN
+    assert len(xs) == min(TRACK_SHOWN, len(t.trajectory)) and xs[-1] == t.trajectory[-1].x   # nur die letzten TRACK_SHOWN
     assert "Spur bestätigt" in w.status.text.toPlainText()
     fb = [f for f in fw.feedback if f[0] is not None]
     assert len(fb) == 38                                  # nach jeder Übernahme der bestätigten Spur
