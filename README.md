@@ -1,11 +1,24 @@
 # PC-Monitor für SDS_110
 
-GUI für die Sensoreinheit SDS_110 (STM32F746) über USB-CDC: Betriebsart und Signalquelle
-steuern, Peilungen (Detect) und Rohdaten (Read) anzeigen, Status und Fehler protokollieren.
+[![Tests](https://github.com/drstefanhilger-commits/PC_Monitor/actions/workflows/tests.yml/badge.svg)](https://github.com/drstefanhilger-commits/PC_Monitor/actions/workflows/tests.yml)
+
+GUI für die Sensoreinheit SDS_110 (STM32F746) über USB-CDC. Version: `app/__init__.py` (`__version__`, Fenstertitel und Bedienfeld).
+
+Funktionen:
+- Betriebsart und Signalquelle steuern.
+- Anzeigen: Peilungen (Detect), Rohdaten (Read), Nordabgleich (Calibrate).
+- Tracking-Einheit (FSL9 §8–10).
+- Status und Fehler protokollieren.
+
 Das Nachrichtenformat beschreibt SDS_110 `doc/ICD_SDS_PC_Monitor.md`.
 
 ## Start
 
+**Windows:** `start_monitor.bat` doppelklicken. Beim ersten Start legt das Skript `.venv` an und installiert die Pakete aus `requirements.txt`. Dafür wird Python ab 3.10 von python.org gebraucht.
+
+**Linux/macOS:** `./start_monitor.sh`
+
+**Von Hand:**
 ```
 python -m venv .venv
 .venv\Scripts\activate          # Linux/macOS: source .venv/bin/activate
@@ -15,14 +28,40 @@ python -m app.main
 
 ## Bedienung
 
-- **Links:** Port wählen, Schalter **On** verbindet. Beim Verbinden werden die Signalquelle (Real/Simulation) und die Betriebsart gesendet.
+- **Verbindung:** Port wählen, Schalter **On** verbindet. Beim Verbinden werden gesendet:
+  - Signalquelle (Real/Simulation)
+  - Betriebsart
+  - SRP-Referenz
+  - Nordabgleich
+  - Sync
 - **Drehschalter Detect – Read – Calibrate:** wählt die Betriebsart des Boards und den angezeigten Tab.
 - **Board:** Unit-ID setzen, SRP-Referenzscan aus/ein.
-- **Sync:** UTC und Lufttemperatur. Wird beim Verbinden, jede Minute und bei Änderung der Temperatur gesendet; ohne Haken bei „Temp.“ gilt die Temperatur als unbekannt.
-- **Tracking:** Die Tracking-Einheit (FSL9 §8–10) bildet aus den Reports eine Spur (grün im Lageplan). Der Schalter „Feedback“ sendet ŝ und die Vorhersage an das Board (Id 8); „Trajektorie als CSV …“ speichert die Spuren.
-- **Unten:** Status- und Fehlermeldungen mit Zählern RX/TX/Fehler, dazu die Meldungen des Boards (Logger) als „SDS: …“.
+- **Sync:** sendet UTC und Lufttemperatur.
+  - Gesendet wird beim Verbinden, jede Minute und wenn sich die Temperatur ändert.
+  - Ohne Haken bei „Temp.“ gilt die Temperatur als unbekannt.
+- **Tracking:** Die Tracking-Einheit bildet aus den Reports eine Spur (grün im Lageplan).
+  - „Feedback“ sendet ŝ und die Vorhersage an das Board (Id 8).
+  - „Trajektorie als CSV …“ speichert die Spuren.
+- **Unten:** Status- und Fehlermeldungen.
+  - Zähler RX/TX/Fehler.
+  - Meldungen des Boards (Logger) erscheinen als „SDS: …“.
 
-![GUI](docs/gui_detect.png)
+![Detect](docs/gui_detect.png)
+
+### Nordabgleich (Tab Calibrate)
+
+Die Einheit steht selten genau mit Mikrofon 0 nach Nord. Der Nordabgleich korrigiert die Peilung um einen Offset (Kommando Id 9, ICD 4.4):
+
+1. Drehschalter auf **Calibrate**. Das Board verarbeitet dann wie in Detect.
+2. Eine Referenzquelle in bekannter Richtung betreiben, zum Beispiel einen Lautsprecher oder eine schwebende Drohne. Ihren Azimut eintragen (0° = Nord, im Uhrzeigersinn).
+3. **Messung starten.** Die Peilungen der UnitReports werden über die Messdauer zirkular gemittelt. Angezeigt werden:
+   - Mittel und Streuung
+   - Abweichung zur Referenz
+   - vorgeschlagener Offset
+   - eine Warnung bei weniger als 10 Peilungen oder mehr als 5° Streuung
+4. **Übernehmen** sendet den Offset. Er wird gespeichert (QSettings) und bei jedem Verbinden erneut gesendet. **Offset 0** hebt den Abgleich auf.
+
+![Calibrate](docs/gui_calibrate.png)
 
 ## Tests (ohne Hardware)
 
@@ -31,11 +70,31 @@ pip install pytest
 python -m pytest tests
 ```
 
-`test_loopback.py` benutzt einen virtuellen seriellen Port (pty) und läuft nur unter Linux/macOS.
-Auf Linux ohne Bildschirm vorher `QT_QPA_PLATFORM=offscreen` setzen. `tests/test_reader.py` und
-`test_writer.py` sind Hilfsskripte für einen echten Port (COM5).
+- **Plattform:** `test_loopback.py` benutzt einen virtuellen seriellen Port (pty) und läuft nur unter Linux/macOS.
+- **Ohne Bildschirm:** Auf Linux vorher `QT_QPA_PLATFORM=offscreen` setzen.
+- **GitHub Actions:** führt die Tests bei jedem Push auf `main` und bei jedem Pull Request aus (`.github/workflows/tests.yml`, Python 3.10 und 3.12).
+
+## Werkzeuge für die Hardware
+
+In `tools/`, nicht Teil der Tests:
+
+- `python -m tools.hw_reader COM5`: Rohbytes eines Ports ausgeben.
+- `python -m tools.hw_writer COM5`: Mode DETECT senden und die erste Antwort ausgeben.
+
+## Aufbau
+
+| Pfad | Inhalt |
+| --- | --- |
+| `app/main.py` | Einstieg, Ausnahmebehandlung |
+| `app/gui/main_window.py` | Hauptfenster: Verbindung, Queues, Tracking, Einstellungen |
+| `app/widgets/` | Bedienfeld links (Drehschalter, Schalter), Statusfenster |
+| `app/tabs/` | Tabs Detect, Read, Calibrate |
+| `app/usb/` | Reader, Writer, Parser (Resync, CRC), Nachrichten |
+| `app/model/SDSUSBModel.py` | Queues, Zähler, Kommandos PC → SDS |
+| `app/tracking/` | Tracking-Einheit (Kalman, Gate, ŝ), Feedback Id 8 |
+| `app/calibration.py` | Nordabgleich: zirkulares Mittel, Offset |
 
 ## Dokumente
 
-- `docs/Analyse_ToDo.md`: Analyse, Befunde P1–P19, ToDo-Liste
+- `docs/Analyse_ToDo.md`: Analyse, Befunde und ToDo-Liste
 - `docs/Traceability_FSL9_PC.md`: Abgleich mit dem Patent FSL9 (Processing Module 120 auf dem PC, Tracking-Einheit 150)

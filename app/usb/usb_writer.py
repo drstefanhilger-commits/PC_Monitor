@@ -69,6 +69,10 @@ class USBWriter(QThread):
     def send_srp(self, on: bool):
         self.send_packet(6, self.model.build_srp_message(on), f"SRP {'ein' if on else 'aus'}")
 
+    def send_azimuth_offset(self, offset_deg: float):
+        self.send_packet(9, self.model.build_azimuth_offset_message(offset_deg),
+                         f"Nordabgleich {offset_deg:+.2f}°")
+
     def send_feedback(self, ref_state=None, azimuth_deg=None, distance_m=None):
         """Feedback der Tracking-Einheit (Id 8); ref_state None = zurücksetzen."""
         from app.tracking.feedback import build_feedback

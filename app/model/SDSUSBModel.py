@@ -4,9 +4,6 @@ import threading
 import zlib
 
 
-STOP_REQUESTED = threading.Event()
-
-
 class SDSMessageID(IntEnum):
     DETECT = 1
     READ = 2
@@ -30,6 +27,7 @@ class SDSCommand(IntEnum):
     SRP_REFERENCE = 6
     SYNC = 7
     FEEDBACK = 8
+    AZIMUTH_OFFSET = 9
 
 
 class SDSUSBModel:
@@ -125,12 +123,6 @@ class SDSUSBModel:
     # ------------------------------------------------------------
     def update_raw_frame(self, raw: bytes):
         self.last_raw_frame = raw
-
-    # ------------------------------------------------------------
-    # Stop-Flag setzen
-    # ------------------------------------------------------------
-    def request_stop(self):
-        STOP_REQUESTED.set()
 
     # ------------------------------------------------------------
     # Queues leeren
@@ -240,6 +232,12 @@ class SDSUSBModel:
     def build_srp_message(self, on: bool) -> bytes:
         # SRP-Referenzscan: 0 = aus, 1 = ein
         return self._build_header_and_payload(SDSCommand.SRP_REFERENCE, 1 if on else 0)
+
+    def build_azimuth_offset_message(self, offset_deg: float) -> bytes:
+        # Nordabgleich (Id 9, ICD 4.4): i32 BE in 0,01°, −180,00 … +180,00°
+        from app.calibration import offset_to_centi
+        return self._build_header_and_payload(SDSCommand.AZIMUTH_OFFSET,
+                                              offset_to_centi(offset_deg) & 0xFFFFFFFF)
 
     TEMP_UNKNOWN = 0x8000
 

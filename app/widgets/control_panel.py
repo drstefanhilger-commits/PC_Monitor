@@ -5,6 +5,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGroupBox, QLabel,
                              QPushButton, QSizePolicy, QSpinBox, QVBoxLayout, QHBoxLayout, QWidget)
 
+from app import __version__
 from app.model.SDSUSBModel import SDSMode
 from app.widgets.mode_dial import ModeDial
 from app.widgets.toggle_switch import ToggleSwitch
@@ -140,7 +141,7 @@ class ControlPanel(QWidget):
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         lay.addWidget(line)
-        lay.addWidget(QLabel("SDS_110 · ICD 28.09.2026"))
+        lay.addWidget(QLabel(f"PC-Monitor {__version__} · ICD 28.09.2026"))
 
         self.refresh_ports()
 
