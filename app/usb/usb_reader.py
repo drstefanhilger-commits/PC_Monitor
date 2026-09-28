@@ -54,7 +54,7 @@ class USBReader(QThread):
                 return
             if item[0] == "error":
                 _, raw, reason = item
-                self.model.inspect_queue.put(("error", raw, reason))
+                self.model.put_frame(self.model.inspect_queue, ("error", raw, reason))
                 continue
             _, msg_id, frame = item
             self.model.update_raw_dump(frame)
@@ -62,6 +62,6 @@ class USBReader(QThread):
                 self.log_signal.emit(f"[USBReader] Frame id {msg_id} ({len(frame)} Byte): {frame.hex()}")
             queue_name = self.ROUTE.get(msg_id)
             if queue_name:
-                getattr(self.model, queue_name).put((msg_id, frame))
+                self.model.put_frame(getattr(self.model, queue_name), (msg_id, frame))
             else:
-                self.model.inspect_queue.put(("unknown_msg_id", frame, f"unknown_msg_id={msg_id}"))
+                self.model.put_frame(self.model.inspect_queue, ("unknown_msg_id", frame, f"unknown_msg_id={msg_id}"))

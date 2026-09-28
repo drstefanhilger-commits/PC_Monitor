@@ -38,8 +38,8 @@ Status: **behoben** = in diesem Stand umgesetzt und getestet, **offen** = in der
 | P7 | hoch | Es fehlen die Kommandos Sync (Id 7: UTC und Temperatur), Unit-ID (5) und SRP-Referenz (6). Id 1 sendet immer 0. | kein UTC-Bezug, Schallgeschwindigkeit bleibt 343 m/s (FSL9 A23), keine Einheiten-Kennung | behoben (Id 3 mit dem Redesign, Id 5, 6, 7 mit T3) |
 | P8 | mittel | Der Detect-Tab zeichnet x = d·sin φ, y = d·cos φ, also φ ab Nord im Uhrzeigersinn; die Firmware sendet φ ab der x-Achse gegen den Uhrzeigersinn | Das Ziel erscheint gespiegelt und gedreht (Firmware 90° wird rechts statt oben gezeichnet) | offen (T5), Konvention mit FSL9 A28 festlegen |
 | P9 | mittel | Die Achsen im Detect-Tab sind fest (±100 m, 0–200 m); die Unit-ID wird ignoriert; es gibt keine Spur und keinen Verlauf | Ziele außerhalb von 100 m fallen aus dem Bild, mehrere Einheiten sind nicht unterscheidbar | offen (T5, T7) |
-| P10 | hoch | Der Read-Tab teilt die 128 Werte in 8 Mikrofone × 16 auf. Tatsächlich enthält jede Nachricht 128 Samples **eines** Mikrofons (`micNr`) für Block `frameNr` 0…11. Die Werte werden als uint32 statt int32 gelesen. | Pegel und Werte sind falsch, negative Samples erscheinen als ~4·10⁹, der Hop wird nicht zusammengesetzt | offen (T4) |
-| P11 | hoch | Bei READ kommen ~3000 Nachrichten/s. Der Reader meldete jedes Frame als Hex-Text, der Inspector baute bei jedem Frame seinen Text neu auf, und der Read-Tab setzt bei jedem Frame seinen Text | Die GUI friert ein, der Speicher wächst (Queues ohne Grenze) | Log-Flut behoben (`verbose=False`, Inspector ersetzt); Read-Tab-Takt und Queue-Grenzen offen (T4) |
+| P10 | hoch | Der Read-Tab teilt die 128 Werte in 8 Mikrofone × 16 auf. Tatsächlich enthält jede Nachricht 128 Samples **eines** Mikrofons (`micNr`) für Block `frameNr` 0…11. Die Werte werden als uint32 statt int32 gelesen. | Pegel und Werte sind falsch, negative Samples erscheinen als ~4·10⁹, der Hop wird nicht zusammengesetzt | behoben (T4, 28.09.2026) |
+| P11 | hoch | Bei READ kommen ~3000 Nachrichten/s. Der Reader meldete jedes Frame als Hex-Text, der Inspector baute bei jedem Frame seinen Text neu auf, und der Read-Tab setzt bei jedem Frame seinen Text | Die GUI friert ein, der Speicher wächst (Queues ohne Grenze) | behoben: Log-Flut, Read-Tab zeichnet mit 10 Hz, Zeitbudget je Poll, begrenzte Queues (T4) |
 | P12 | mittel | `serial.read()` mit 0,1 s Timeout kann den Rest eines Frames nur teilweise liefern | Meldung „payload_incomplete“ und danach Versatz (P3) | behoben (T1: Bytestrom statt fester Lesegrößen) |
 | P13 | niedrig | Der Inspector zählte unbekannte Ids als „corrupt“. Der Logger schrieb in dasselbe Textfeld, das der Inspector 50-mal pro Sekunde geleert hat. Die TX-Statistik kannte nur die Ids 1–3. | falsche Zähler, Meldungen verschwanden sofort | behoben (Status-Fenster, `update_sent` für alle Ids) |
 | P14 | niedrig | Altbestand im Repository: `Safe/`, `srp_monitor.py` (tkinter, 24-Byte-Frames), `sds_read_usb_receiver_gui.py` (defekter Import), unbenutzte Teile (`STOP_REQUESTED`, `USBPortManager`) | Verwechslungsgefahr beim Weiterentwickeln | offen (T9) |
@@ -48,6 +48,7 @@ Status: **behoben** = in diesem Stand umgesetzt und getestet, **offen** = in der
 | P17 | hoch | Die PC-Seite des Patents fehlt: Inter-Unit-Korrelation und Lokalisation (Teile von 126, 128), Candidate Report (130), Tracking-Einheit (150) und Feedback (Id 8) | FSL9 §6–10 und die Ansprüche 6–12 sind nicht umgesetzt (`Traceability_FSL9_PC.md`) | offen (T7, T8) |
 | P18 | niedrig | Die Firmware hat in CALIBRATE keine Funktion | Der Calibrate-Tab bleibt ohne Daten | offen (T10) |
 | P19 | mittel | Es kann nur ein COM-Port bzw. eine Einheit verbunden werden | FSL9 verlangt N ≥ 2 Einheiten | offen (T7) |
+| P20 | hoch | Am Board fror die App beim Umschalten auf Read ein. `process_queue` leerte die Read-Queue ohne Zeitgrenze, und der Read-Tab baute je Nachricht Text neu auf. Bei ~3000 Nachrichten/s kam die GUI nicht mehr in die Ereignisschleife zurück. Außerdem beendet PyQt6 das Programm bei jeder nicht abgefangenen Ausnahme in einem Slot. | App friert ein bzw. bricht ab (Rückmeldung vom 28.09.2026) | behoben: Zeitbudget 15 ms je Poll, Read-Tab neu, begrenzte Queues, Schutz vor Meldungsfluten, `sys.excepthook` meldet Fehler im Status-Fenster statt abzubrechen. Test `test_read_load.py`; derselbe Test hängt mit dem alten Stand. |
 
 ## 3. Umgesetzt: GUI-Redesign
 
@@ -97,6 +98,26 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 
 ![Detect mit UnitReport](gui_detect.png)
 
+## 3b. Umgesetzt: Absturz im Modus READ und Read-Tab (T4, 28.09.2026)
+
+- **Read-Tab neu:**
+  - Die Samples je Mikrofon und Block werden als int32 in einen Hop-Puffer (8 × 1536) übernommen.
+  - Er zeigt den Pegel je Mikrofon (RMS in dBFS) und die Wellenform (ein Mikrofon oder alle).
+  - Dazu kommen die Blöcke je Hop, Nachrichten/s und die Zahl ungültiger Nachrichten.
+  - Er zeichnet höchstens 10-mal pro Sekunde und nur, wenn er sichtbar ist.
+- **Hauptfenster:**
+  - `process_queue` arbeitet höchstens 15 ms je Poll.
+  - Die Queues sind begrenzt (20 000 Einträge). Verworfene Nachrichten werden gezählt und gemeldet.
+  - Mehr als 20 Meldungen pro Sekunde fasst das Status-Fenster zusammen.
+- **`app/main.py`:** Nicht abgefangene Ausnahmen beenden das Programm nicht mehr, sondern erscheinen im Status-Fenster und auf der Konsole.
+- **Lasttest `test_read_load.py`:**
+  - Ablauf: 96 Nachrichten je 32 ms für 2 s, während die Ereignisschleife läuft.
+  - Ergebnis: Alle 6048 Nachrichten kommen an, ein Poll dauert höchstens 1,2 ms, die Ereignisschleife pausiert höchstens 32 ms, und die Pegel stimmen auf 0,1 dB.
+  - Gegenprobe: Mit dem alten Stand hängt derselbe Test.
+- **Offen aus T4:** ein Spektrum je Mikrofon.
+
+![Read](gui_read.png)
+
 ## 4. ToDo-Liste
 
 | Nr. | Prio | Aufgabe | Befunde | Aufwand |
@@ -104,7 +125,7 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
 | T1 | erledigt | Den Reader auf `SDSParser` umstellen: Byte-Resync auf das Magic, Längengrenzen je Id, CRC prüfen, Zähler je Fehlerart | P3, P4, P5, P12 | klein |
 | T2 | erledigt | UnitReport Id 5 parsen: µs-Zeit und Quelle, Paare, Residuum, Bänder mit p_b, Anzeige im Detect-Tab (Balken p_b je Band). Logger Id 99 als INFO ins Status-Fenster. | P6 | mittel |
 | T3 | erledigt | Sync Id 7 senden: beim Verbinden und dann jede Minute, UTC in µs und Temperatur aus einem Eingabefeld (später Sensor). Außerdem Unit-ID Id 5 und einen Schalter SRP-Referenz Id 6 ins Bedienfeld. | P7 | klein |
-| T4 | hoch | Den Read-Tab neu bauen: Hop aus 8 × 12 Blöcken zusammensetzen, int32 lesen, Pegel je Mikrofon in dBFS, Wellenform und Spektrum. Anzeige mit höchstens 10 Hz, Queues begrenzen. | P10, P11 | mittel |
+| T4 | erledigt (ohne Spektrum) | Den Read-Tab neu bauen: Hop aus 8 × 12 Blöcken zusammensetzen, int32 lesen, Pegel je Mikrofon in dBFS, Wellenform und Spektrum. Anzeige mit höchstens 10 Hz, Queues begrenzen. | P10, P11 | mittel |
 | T5 | mittel | Azimut-Konvention mit der Firmware festlegen (FSL9 A28: ab Nord). Detect-Plot danach ausrichten, Achsen automatisch skalieren, Verlauf der Ziele. | P8, P9 | klein |
 | T6 | mittel | Einen USB-Abbruch erkennen: Reader meldet den Abbruch, der Schalter geht auf Off, Fehlermeldung | P16 | klein |
 | T7 | hoch | Mehrere Einheiten: je Einheit ein Port bzw. eine Unit-ID, Positionen konfigurierbar. PC-Teil von 126 und 128 (Multilateration N ≥ 3, gemeinsamer Modus N = 2) und Candidate Report (130). Dafür muss die Firmware Spektren oder TDOA je Einheit liefern (Architektur klären). | P17, P19 | groß |

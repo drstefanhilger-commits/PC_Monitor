@@ -32,6 +32,7 @@ class MainWindow(QMainWindow):
     SERIAL_BAUD = 115200          # USB-CDC: Baudrate ohne Bedeutung
     STATS_EVERY = 10              # Zählerzeile alle 10 Polls (200 ms)
     SYNC_PERIOD_MS = 60_000       # Sync (UTC + Temperatur) jede Minute, ICD 4.2
+    POLL_BUDGET_S = 0.015         # je Poll höchstens 15 ms arbeiten, dann zurück in die Ereignisschleife
 
     def __init__(self):
         super().__init__()
@@ -201,6 +202,21 @@ class MainWindow(QMainWindow):
     # Queue-Polling
     # ------------------------------------------------------------
     def process_queue(self):
+        """
+        Queues abarbeiten, aber höchstens POLL_BUDGET_S lang: im Modus READ kommen ~3000
+        Nachrichten/s, ohne Budget kehrte die GUI nie in die Ereignisschleife zurück (eingefroren).
+        Übrig gebliebene Nachrichten folgen im nächsten Poll (20 ms später).
+        """
+        deadline = time.monotonic() + self.POLL_BUDGET_S
+        self._process_queues(deadline)
+        self._poll_count += 1
+        if self._poll_count % self.STATS_EVERY == 0:
+            dropped = self.model.take_dropped()
+            if dropped:
+                self.status.log(f"{dropped} Nachrichten verworfen (Anzeige zu langsam, Queue voll)", "WARN")
+            self.status.update_stats()
+
+    def _process_queues(self, deadline: float):
         while not self.model.detect_queue.empty():
             msg_id, frame = self.model.detect_queue.get()
             self.detect_tab.update_frame(frame)
@@ -208,12 +224,11 @@ class MainWindow(QMainWindow):
             self.model.stats_detect += 1
             self.model.update_frame(msg_id, frame, "DETECT")
 
-        while not self.model.read_queue.empty():
+        while not self.model.read_queue.empty() and time.monotonic() < deadline:
             msg_id, frame = self.model.read_queue.get()
             self.read_tab.update_frame(frame)
             self.model.stats_total += 1
             self.model.stats_read += 1
-            self.model.update_frame(msg_id, frame, "READ")
 
         while not self.model.unit_queue.empty():
             msg_id, frame = self.model.unit_queue.get()
@@ -249,10 +264,6 @@ class MainWindow(QMainWindow):
                 self.status.log(f"{reason} ({len(raw)} Byte): {raw[:32].hex(' ').upper()}", "ERROR")
             else:
                 self.status.log(f"Datenstrom: {reason}", "WARN")      # Resync auf das Magic
-
-        self._poll_count += 1
-        if self._poll_count % self.STATS_EVERY == 0:
-            self.status.update_stats()
 
     # ------------------------------------------------------------
     # Fenster schließen -> USB stoppen
