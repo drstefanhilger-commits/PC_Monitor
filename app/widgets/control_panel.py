@@ -19,7 +19,7 @@ class ControlPanel(QWidget):
       - Drehschalter Detect/Read/Calibrate (ICD Id 2, wählt auch den sichtbaren Tab)
       - Board: Unit-ID setzen (Id 5), SRP-Referenzscan aus/ein (Id 6)
       - Sync: UTC + Lufttemperatur (Id 7), automatisch jede Minute, bei Temperaturänderung sofort
-      - Standort: Breite, Länge, Höhe (Id 10); Anzeige des Standorts, den das Board meldet (Id 6)
+      - Standort lokal: Ost, Nord, Oben in m (Id 10); Anzeige der Position, die das Board meldet (Id 6)
     Die Signale gehen an das MainWindow; das Panel selbst sendet nichts.
     """
 
@@ -29,7 +29,7 @@ class ControlPanel(QWidget):
     unit_id_set = pyqtSignal(int)
     srp_toggled = pyqtSignal(bool)
     sync_requested = pyqtSignal()             # Sync jetzt senden (Knopf oder Temperatur geändert)
-    position_set = pyqtSignal(str)            # Eingabe "Breite, Länge[, Höhe]" senden
+    position_set = pyqtSignal(str)            # Eingabe "Ost, Nord[, Oben]" in m senden
     feedback_toggled = pyqtSignal(bool)       # Tracking-Feedback an das Board (Id 8)
     export_requested = pyqtSignal()           # Trajektorien als CSV speichern
 
@@ -136,13 +136,14 @@ class ControlPanel(QWidget):
         lay.addWidget(box_sync)
 
         # --- Standort (Id 10 -> Board, Id 6 <- Board) -----------------------------
-        box_pos = QGroupBox("Standort (WGS84)")
+        box_pos = QGroupBox("Standort (lokal, m)")
         vp = QVBoxLayout(box_pos)
         self.pos_edit = QLineEdit()
-        self.pos_edit.setPlaceholderText("Breite, Länge, Höhe m")
-        self.pos_edit.setToolTip("Dezimalgrad, Nord/Ost positiv, Höhe über NN in m (optional),\n"
-                                 "z. B. 48.137154, 11.57549, 519.5 – Breite, Länge aus Google Maps kopierbar.\n"
-                                 "Wird gespeichert und beim Verbinden gesendet. Version 2: GPS-Modul am Board.")
+        self.pos_edit.setPlaceholderText("Ost, Nord, Oben in m")
+        self.pos_edit.setToolTip("Position der Einheit relativ zum lokalen Ursprung [0, 0, 0] in m,\n"
+                                 "Ost/Nord positiv, Oben optional, z. B. 0, -50, 2.\n"
+                                 "Das Board startet im Ursprung. Wird gespeichert und beim Verbinden gesendet.\n"
+                                 "Simulation FlyBy: die Bahn liegt um den Ursprung (kürzester Abstand 30 m).")
         self.pos_edit.returnPressed.connect(lambda: self.position_set.emit(self.pos_edit.text()))
         vp.addWidget(self.pos_edit)
         row = QHBoxLayout()

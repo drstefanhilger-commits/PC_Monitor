@@ -263,19 +263,19 @@ class SDSUSBModel:
 
     def build_position_message(self, pos=None) -> bytes:
         """
-        Standort (Id 10, 28 Byte, ICD 4.5): Breite, Länge i32 BE in 1e-7°, Höhe i32 BE in mm über NN,
-        Flags (Bit 0 = gültig), 3 Byte reserviert, CRC32 BE. pos None -> Position löschen.
+        Standort lokal (Id 10, 28 Byte, ICD 4.5): Ost, Nord, Oben i32 BE in mm, Flags (Bit 0 = setzen),
+        3 Byte reserviert, CRC32 BE. pos None -> zurück auf den Ursprung [0, 0, 0].
         """
-        from app.geo import to_wire, validate
+        from app.local_position import to_wire, validate
         if pos is None:
-            lat = lon = alt = 0
+            east = north = up = 0
             flags = 0
         else:
-            lat, lon, alt = to_wire(validate(pos))
+            east, north, up = to_wire(validate(pos))
             flags = 1
         body = (b"\xDE\xAD\xBE\xEF" + bytes([SDSCommand.POSITION]) + (28).to_bytes(3, "big")
-                + lat.to_bytes(4, "big", signed=True) + lon.to_bytes(4, "big", signed=True)
-                + alt.to_bytes(4, "big", signed=True) + bytes([flags, 0, 0, 0]))
+                + east.to_bytes(4, "big", signed=True) + north.to_bytes(4, "big", signed=True)
+                + up.to_bytes(4, "big", signed=True) + bytes([flags, 0, 0, 0]))
         return body + (zlib.crc32(body) & 0xFFFFFFFF).to_bytes(4, "big")
 
     TEMP_UNKNOWN = 0x8000

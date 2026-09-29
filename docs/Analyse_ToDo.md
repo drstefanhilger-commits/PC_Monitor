@@ -223,7 +223,16 @@ Tests ohne Hardware (`python -m pytest tests/test_protocol.py tests/test_gui.py 
   - Zurückgestellt: Unit-ID speichern und beim Verbinden senden, die vom Board gemeldete ID im Bedienfeld anzeigen.
   - Unit-ID (Id 5) und SRP (Id 6) blieben am Board ohne Wirkung. Der PC sendet die Bytes richtig (Prüfung über pty). Ursache in der Firmware: Bei laufendem Feedback (Id 8, bis 31/s) fasst Windows die Schreibvorgänge zu einem USB-Paket zusammen, und die Firmware wertete nur das erste Kommando je Paket aus (SDS_110 Befund 32). Behoben in SDS_110 mit `CommandAssembler`.
 
-## 3g. Umgesetzt: Standort der Einheit (28.09.2026)
+## 3h. Umgesetzt: Standort lokal statt WGS84 (29.09.2026)
+
+- **Anlass:** Die Positionen der Einheiten werden in einem lokalen System angegeben (FSL9 §1: vermessen auf 0,1 m). GNSS-Vorrang entfällt (Firmware: offener Punkt A7).
+- **Kommando Id 10 (28 Byte):** Ost, Nord, Oben als i32 BE in mm; Flags Bit 0 = setzen, 0 = zurück auf den Ursprung. Dieselben Bytes wie im SDS_110-Test `t_local_position`.
+- **Nachricht Id 6:** Unit, Flags (vom PC gesetzt), Ost, Nord, Oben in mm; Byte 2 reserviert.
+- **Bedienfeld „Standort (lokal, m)“:** Eingabe `Ost, Nord[, Oben]`, geprüft in `app/local_position.py`, gespeichert unter `local_position`; ohne Eintrag der Ursprung. Beim Verbinden immer gesendet.
+- **CSV-Export:** `ost_lokal_m`, `nord_lokal_m` statt `breite_deg`, `laenge_deg`.
+- **Simulation:** Die FlyBy-Bahn der Firmware liegt um den Ursprung; die Position der Einheit bestimmt Abstand und Richtung.
+
+## 3g. Umgesetzt: Standort der Einheit (28.09.2026, ersetzt durch 3h)
 
 ![Standort](gui_position.png)
 
