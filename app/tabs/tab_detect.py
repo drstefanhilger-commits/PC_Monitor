@@ -18,6 +18,8 @@ RANGES_M = (25, 50, 100, 200, 500, 1000, 2000, 5000)     # Anzeigeradien (automa
 TRAIL = 60                                               # zuletzt angezeigte Positionen
 TRACK_SHOWN = 50                                         # angezeigte Punkte der Spur (Export: alle)
 HISTORY = 200
+LINE_PEN_DETECT = pg.mkPen('r', width=2)                 # Linie zur Detektion (keine bestätigte Spur)
+LINE_PEN_TRACK = pg.mkPen((0, 220, 120), width=2)        # Linie zum Kopf der bestätigten Spur (grün)
 
 
 def compass_xy(azimuth_deg: float, r: float):
@@ -54,7 +56,10 @@ class TabDetect(QWidget):
         self.range_m = None
         self.trail = self.polar.plot(pen=None, symbol='o', symbolSize=5,
                                      symbolBrush=pg.mkBrush(255, 120, 120, 90), symbolPen=None)
-        self.line = self.polar.plot(pen=pg.mkPen('r', width=2))
+        # Linie vom Standort: zum Kopf der bestätigten Spur, sonst zur letzten Detektion
+        self.line = self.polar.plot(pen=LINE_PEN_DETECT)
+        self._detect_xy = None                 # letzte Detektion (Ost, Nord)
+        self._track_head = None                # letzter Punkt der bestätigten Spur (Ost, Nord)
         self.point = self.polar.plot(pen=None, symbol='o', symbolSize=10, symbolBrush='r')
         # Spur der Tracking-Einheit: bestätigte Trajektorie (grün), Vorhersage (Ring)
         self.track_line = self.polar.plot(pen=pg.mkPen((0, 220, 120), width=3))
@@ -165,7 +170,8 @@ class TabDetect(QWidget):
 
         self._set_range(choose_range(self.dist_history))
         self.point.setData([x], [y])
-        self.line.setData([0, x], [0, y])
+        self._detect_xy = (x, y)
+        self._update_line()
         tx, ty = zip(*self.trail_xy)
         self.trail.setData(list(tx), list(ty))
         self.dist_curve.setData(list(self.dist_history))
@@ -173,9 +179,26 @@ class TabDetect(QWidget):
         self.curve_conf.setData(list(self.conf_history))
         self.pos_label.setText(f"Azimut {azi % 360.0:5.1f}°   Distanz {dist:6.1f} m   Konfidenz {conf:.2f}")
 
+    def _update_line(self):
+        """Linie vom Standort zum Kopf der grünen Spur; ohne bestätigte Spur zur Detektion (rot)."""
+        if self._track_head is not None:
+            self.line.setPen(LINE_PEN_TRACK)
+            x, y = self._track_head
+        elif self._detect_xy is not None:
+            self.line.setPen(LINE_PEN_DETECT)
+            x, y = self._detect_xy
+        else:
+            self.line.setData([], [])
+            return
+        self.line.setData([0, x], [0, y])
+
     def update_track(self, tracker, decision=None):
         """Spur der Tracking-Einheit anzeigen (Zustand, Geschwindigkeit, Gate-Werte)."""
         t = tracker.track
+        head = (t.trajectory[-1].x, t.trajectory[-1].y) if t is not None and t.confirmed and t.trajectory else None
+        if head != self._track_head:
+            self._track_head = head
+            self._update_line()
         if t is None:
             self.track_line.setData([], [])
             self.track_pred.setData([], [])

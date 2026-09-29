@@ -47,6 +47,10 @@ def test_track_feedback_timeout_export(qapp, tmp_path):
     xs, ys = w.detect_tab.track_line.getData()
     from app.tabs.tab_detect import TRACK_SHOWN
     assert len(xs) == min(TRACK_SHOWN, len(t.trajectory)) and xs[-1] == t.trajectory[-1].x   # nur die letzten TRACK_SHOWN
+    lx, ly = w.detect_tab.line.getData()                  # Linie zeigt auf den Kopf der grünen Spur
+    assert (lx[0], ly[0]) == (0, 0) and (lx[1], ly[1]) == (t.trajectory[-1].x, t.trajectory[-1].y)
+    dx, dy = w.detect_tab.point.getData()
+    assert (lx[1], ly[1]) != (dx[0], dy[0])               # nicht auf die (verrauschte) Detektion
     assert "Spur bestätigt" in w.status.text.toPlainText()
     fb = [f for f in fw.feedback if f[0] is not None]
     assert len(fb) == 38                                  # nach jeder Übernahme der bestätigten Spur
@@ -64,6 +68,9 @@ def test_track_feedback_timeout_export(qapp, tmp_path):
     assert w.tracker.track is None and len(w.tracker.finished) == 1
     assert fw.feedback[-1][0] is None
     assert "Spur beendet" in w.status.text.toPlainText()
+    lx, ly = w.detect_tab.line.getData()                  # ohne Spur wieder zur letzten Detektion
+    dx, dy = w.detect_tab.point.getData()
+    assert (lx[1], ly[1]) == (dx[0], dy[0])
 
     # CSV
     path = tmp_path / "spur.csv"
