@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QMainWindow, QScr
                              QTabWidget, QWidget)
 
 from app import __version__
-from app.model.SDSUSBModel import SDSMode, SDSUSBModel
+from app.model.SDSUSBModel import SDSMode, SDSUSBModel, SIM_DEFAULT, SIM_REAL, SIM_SCENARIOS
 from app.tabs.tab_calibrate import TabCalibrate
 from app.tabs.tab_detect import TabDetect
 from app.tabs.tab_read import TabRead
@@ -61,7 +61,8 @@ class MainWindow(QMainWindow):
         # --- Bedienfeld links ------------------------------------------
         self.controls = ControlPanel()
         self.controls.power_toggled.connect(self.on_power)
-        self.controls.simulation_toggled.connect(self.on_simulation)
+        self.controls.set_scenario(self.sim_scenario())
+        self.controls.simulation_changed.connect(self.on_simulation)
         self.controls.mode_changed.connect(self.on_mode)
         self.controls.unit_id_set.connect(self.on_unit_id)
         self.controls.srp_toggled.connect(self.on_srp)
@@ -139,11 +140,22 @@ class MainWindow(QMainWindow):
         else:
             self.disconnect_usb()
 
-    def on_simulation(self, on: bool):
+    # Signalquelle (Id 3): 0 = Mikrofone, 1 … 7 = Simulator-Szenario; Szenario gespeichert
+    def sim_scenario(self) -> int:
+        try:
+            return int(self.settings.value("sim_scenario", SIM_DEFAULT))
+        except (TypeError, ValueError):
+            return SIM_DEFAULT
+
+    def on_simulation(self, value: int):
+        if value != SIM_REAL:
+            self.settings.setValue("sim_scenario", int(value))
+            self.settings.sync()
         if self.writer:
-            self.writer.send_simulation(on)
+            self.writer.send_simulation(value)
         else:
-            self.status.log(f"{'Simulation' if on else 'Real'} gewählt; wird beim Verbinden gesendet")
+            name = "Real" if value == SIM_REAL else f"Simulation {dict(SIM_SCENARIOS)[value]}"
+            self.status.log(f"{name} gewählt; wird beim Verbinden gesendet")
 
     def on_mode(self, mode: SDSMode):
         self.model.set_mode(mode)
@@ -352,7 +364,7 @@ class MainWindow(QMainWindow):
         self.status.log(f"Verbunden mit {port}")
 
         # Board auf den Stand der Schalter bringen, Zeit und Temperatur senden
-        self.writer.send_simulation(self.controls.simulation())
+        self.writer.send_simulation(self.controls.simulation_value())
         self.writer.send_mode(int(self.controls.mode()))
         self.writer.send_srp(self.controls.srp())
         self.writer.send_azimuth_offset(self.azimuth_offset())
