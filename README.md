@@ -41,12 +41,13 @@ python -m app.main
 - **Sync:** sendet UTC und Lufttemperatur.
   - Gesendet wird beim Verbinden, jede Minute und wenn sich die Temperatur ändert.
   - Ohne Haken bei „Temp.“ gilt die Temperatur als unbekannt.
-- **Standort (WGS84):** Breite, Länge und Höhe über NN der Einheit, zum Beispiel `48.137154, 11.57549, 519.5`.
-  - Breite und Länge lassen sich aus Google Maps kopieren. Ohne Höhe gilt 0 m.
-  - „Senden“ oder Enter sendet den Standort (Id 10) und speichert ihn; beim Verbinden wird er erneut gesendet.
-  - „Board: …“ zeigt, was das Board meldet (Id 6, jede Sekunde), mit der Quelle PC oder GNSS. Orange: kein Standort oder ein anderer als der eingegebene.
-  - In der Hardware-Version 2 setzt ein GPS-Modul den Standort; eine gültige GNSS-Position überschreibt der PC nicht.
-  - Der CSV-Export enthält damit Breite und Länge jedes Spurpunkts.
+- **Standort (lokal, m):** Position der Einheit relativ zum lokalen Ursprung [0, 0, 0]: Ost, Nord, Oben in m, zum Beispiel `0, -50, 2`.
+  - Ohne Oben gilt 0 m. Ohne gespeicherten Wert gilt der Ursprung; das Board startet ebenfalls dort.
+  - „Senden“ oder Enter sendet die Position (Id 10, mm) und speichert sie; beim Verbinden wird sie erneut gesendet.
+  - „Board: …“ zeigt, was das Board meldet (Id 6, jede Sekunde). Orange: andere Position als die eingegebene.
+  - Simulation FlyBy: Die Bahn liegt um den Ursprung (kürzester Abstand 30 m). Steht die Einheit z. B. bei `0, -50`, fliegt die Drohne in 80 m Abstand vorbei.
+  - Der CSV-Export enthält jeden Spurpunkt zusätzlich im lokalen System (`ost_lokal_m`, `nord_lokal_m`).
+  - Bis 29.09.2026 war der Standort WGS84 (Breite, Länge, Höhe); der alte gespeicherte Wert wird nicht mehr verwendet.
 - **Tracking:** Die Tracking-Einheit bildet aus den Reports eine Spur. Der Lageplan zeigt die letzten 50 Punkte grün (`TRACK_SHOWN`); der CSV-Export enthält alle.
   - „Feedback“ sendet ŝ und die Vorhersage an das Board (Id 8).
   - „Trajektorie als CSV …“ speichert die Spuren.
@@ -109,7 +110,7 @@ In `tools/`, nicht Teil der Tests:
 | `app/model/SDSUSBModel.py` | Queues, Zähler, Kommandos PC → SDS |
 | `app/tracking/` | Tracking-Einheit (Kalman, Gate, ŝ), Feedback Id 8 |
 | `app/calibration.py` | Nordabgleich: zirkulares Mittel, Offset |
-| `app/geo.py` | Standort: Eingabe prüfen, Kodierung, Ost/Nord → Breite/Länge |
+| `app/local_position.py` | Standort lokal (Ost, Nord, Oben): Eingabe prüfen, Kodierung in mm |
 
 ## Dokumente
 

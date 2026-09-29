@@ -84,30 +84,27 @@ def parse_unit_report(frame: bytes) -> UnitReport:
 
 @dataclass
 class BoardPosition:
-    """Nachricht Id 6 (ICD 5.5): Standort, den das Board verwendet."""
+    """Nachricht Id 6 (ICD 5.5): lokale Position, die das Board verwendet (Ost, Nord, Oben in m)."""
     unit: int
-    source: int                 # 0 keine, 1 PC, 2 GNSS
-    valid: bool
-    lat_deg: float
-    lon_deg: float
-    alt_m: float
+    set: bool                   # vom PC gesetzt (False: Grundwert Ursprung)
+    east_m: float
+    north_m: float
+    up_m: float
 
-    @property
-    def source_name(self) -> str:
-        from app.geo import SOURCE
-        return SOURCE.get(self.source, f"? ({self.source})")
+    def local(self):
+        from app.local_position import LocalPosition
+        return LocalPosition(self.east_m, self.north_m, self.up_m)
 
     def text(self) -> str:
-        if not self.valid:
-            return "kein Standort"
-        return f"{self.lat_deg:.7f}, {self.lon_deg:.7f}, {self.alt_m:.1f} m ({self.source_name})"
+        t = f"O {self.east_m:.2f} N {self.north_m:.2f} H {self.up_m:.2f} m"
+        return t if self.set else t + " (Ursprung)"
 
 
 def parse_position(frame: bytes) -> BoardPosition:
     if len(frame) != 144:
         raise ValueError(f"Standort: Länge {len(frame)} statt 144")
-    unit, src, flags, lat, lon, alt = struct.unpack_from("<HBBiii", frame, 12)
-    return BoardPosition(unit, src, bool(flags & 1), lat * 1e-7, lon * 1e-7, alt / 1000.0)
+    unit, _reserved, flags, east, north, up = struct.unpack_from("<HBBiii", frame, 12)
+    return BoardPosition(unit, bool(flags & 1), east / 1000.0, north / 1000.0, up / 1000.0)
 
 
 def parse_logger(frame: bytes) -> str:

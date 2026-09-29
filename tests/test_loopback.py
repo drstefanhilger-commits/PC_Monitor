@@ -49,7 +49,7 @@ def test_power_on_sends_state_and_receives_detect():
         w.controls.port_combo.setCurrentText(os.ttyname(slave))
         w.controls.mode_dial.set_mode(SDSMode.READ, emit=False)
         w.settings.setValue("azimuth_offset_deg", -12.34)                     # gespeicherter Nordabgleich
-        w.settings.setValue("position", "48.137154, 11.57549, 519.5")          # gespeicherter Standort
+        w.settings.setValue("local_position", "123.456, -78.9, 5.5")          # gespeicherte Position (lokal)
         w.controls.sim_combo.setCurrentIndex(w.controls.sim_combo.findData(7))  # Szenario FlyBy
         w.controls.sw_power.click()
         assert w.controls.sw_power.isChecked()
@@ -60,8 +60,8 @@ def test_power_on_sends_state_and_receives_detect():
         off = cmds[48:64]                                                     # Nordabgleich −12,34°
         assert off[:12] == bytes.fromhex("DEADBEEF09000010" "FFFFFB2E")
         assert off[12:] == (zlib.crc32(off[:12]) & 0xFFFFFFFF).to_bytes(4, "big")
-        pos = cmds[64:92]                                                     # Standort Id 10
-        assert pos[:24].hex() == "deadbeef0a00001c1cb1259406e647940007ed4c01000000"
+        pos = cmds[64:92]                                                     # Standort Id 10 (lokal)
+        assert pos[:24].hex() == "deadbeef0a00001c0001e240fffecbcc0000157c01000000"
         sync = cmds[92:116]
         assert sync[:8] == bytes.fromhex("DEADBEEF07000018")                  # Sync, 24 Byte
         assert abs(int.from_bytes(sync[8:16], "big") / 1e6 - time.time()) < 5

@@ -14,7 +14,7 @@ from app.tabs.tab_calibrate import TabCalibrate
 from app.tabs.tab_detect import TabDetect
 from app.tabs.tab_read import TabRead
 from app.tracking.tracker import CandidateReport, Tracker, T_END_S
-from app.geo import GeoPosition, enu_to_geodetic, parse_position as parse_position_text
+from app.local_position import ORIGIN, parse_position as parse_position_text, same as same_position
 from app.usb.messages import LineAssembler, parse_detect, parse_logger, parse_position, parse_unit_report
 from app.usb.usb_reader import USBReader
 from app.usb.usb_writer import USBWriter
@@ -78,10 +78,8 @@ class MainWindow(QMainWindow):
         self.read_tab = TabRead()
         self.calibrate_tab = TabCalibrate()
         self.board_position = None             # letzte Nachricht Id 6
-        p = self.position()
-        if p is not None:
-            self.controls.pos_edit.setText(p.text())
-            self.controls.pos_edit.setCursorPosition(0)
+        self.controls.pos_edit.setText(self.position().text())     # gespeichert, sonst Ursprung
+        self.controls.pos_edit.setCursorPosition(0)
         self.calibrate_tab.set_offset(self.azimuth_offset())
         self.calibrate_tab.offset_apply.connect(self.on_azimuth_offset)
         self.tab_index = {
@@ -199,14 +197,14 @@ class MainWindow(QMainWindow):
     # Standort (Id 10): gespeichert, beim Verbinden gesendet; Board meldet Id 6
     # ------------------------------------------------------------
     def position(self):
-        """gespeicherter Standort oder None"""
-        v = self.settings.value("position", "")
+        """gespeicherte lokale Position (Ost, Nord, Oben in m); ohne Eintrag der Ursprung [0, 0, 0]"""
+        v = self.settings.value("local_position", "")
         if not v:
-            return None
+            return ORIGIN
         try:
             return parse_position_text(str(v))
         except ValueError:
-            return None
+            return ORIGIN
 
     def on_position(self, text: str):
         try:
@@ -214,30 +212,24 @@ class MainWindow(QMainWindow):
         except ValueError as e:
             self.status.log(f"Standort: {e}", "ERROR")
             return
-        self.settings.setValue("position", p.text())
+        self.settings.setValue("local_position", p.text())
         self.settings.sync()
         self.controls.pos_edit.setText(p.text())
         self.controls.pos_edit.setCursorPosition(0)
         if self.writer:
             self.writer.send_position(p)
         else:
-            self.status.log(f"Standort {p.text()} gespeichert; wird beim Verbinden gesendet")
+            self.status.log(f"Standort {p.text()} m gespeichert; wird beim Verbinden gesendet")
 
     def on_board_position(self, bp):
+        """Id 6: Position des Boards anzeigen; orange, wenn sie nicht der gespeicherten entspricht"""
         self.board_position = bp
-        mine = self.position()
-        ok = bp.valid
-        if ok and mine is not None and bp.source == 1:        # vom PC gesetzt: stimmt er?
-            ok = abs(bp.lat_deg - mine.lat_deg) < 2e-7 and abs(bp.lon_deg - mine.lon_deg) < 2e-7 \
-                and abs(bp.alt_m - mine.alt_m) < 0.002
-        self.controls.set_board_position(bp.text(), ok)
+        self.controls.set_board_position(bp.text(), same_position(bp.local(), self.position()))
 
     def track_origin(self):
-        """Standort für die Umrechnung der Spur: vom Board gemeldet, sonst der gespeicherte"""
+        """Position der Einheit für die Spur in lokalen Koordinaten: vom Board gemeldet, sonst gespeichert"""
         bp = self.board_position
-        if bp is not None and bp.valid:
-            return GeoPosition(bp.lat_deg, bp.lon_deg, bp.alt_m)
-        return self.position()
+        return bp.local() if bp is not None else self.position()
 
     # ------------------------------------------------------------
     # Tracking-Einheit
@@ -295,7 +287,8 @@ class MainWindow(QMainWindow):
     def export_track(self, path: str) -> int:
         """
         Beendete und laufende bestätigte Trajektorien als CSV; Rückgabe: Zahl der Punkte.
-        Mit bekanntem Standort (Id 6 vom Board oder gespeichert) auch Breite/Länge je Punkt.
+        ost_m/nord_m relativ zur Einheit, ost_lokal_m/nord_lokal_m im lokalen System (Position der
+        Einheit aus Id 6 vom Board, sonst die gespeicherte).
         """
         origin = self.track_origin()
         tracks = list(self.tracker.finished)
@@ -305,16 +298,12 @@ class MainWindow(QMainWindow):
         with open(path, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f, delimiter=";")
             w.writerow(["spur", "zeit_s", "ost_m", "nord_m", "v_ost_ms", "v_nord_ms",
-                        "azimut_deg", "distanz_m", "geschw_ms", "kurs_deg", "breite_deg", "laenge_deg"])
+                        "azimut_deg", "distanz_m", "geschw_ms", "kurs_deg", "ost_lokal_m", "nord_lokal_m"])
             for k, tr in enumerate(tracks, 1):
                 for p in tr:
-                    geo = ["", ""]
-                    if origin is not None:
-                        lat, lon = enu_to_geodetic(origin, p.x, p.y)
-                        geo = [f"{lat:.7f}", f"{lon:.7f}"]
                     w.writerow([k, f"{p.time_s:.6f}", f"{p.x:.2f}", f"{p.y:.2f}", f"{p.vx:.2f}", f"{p.vy:.2f}",
-                                f"{p.azimuth_deg:.2f}", f"{p.distance_m:.2f}", f"{p.speed_ms:.2f}", f"{p.course_deg:.1f}"]
-                               + geo)
+                                f"{p.azimuth_deg:.2f}", f"{p.distance_m:.2f}", f"{p.speed_ms:.2f}", f"{p.course_deg:.1f}",
+                                f"{origin.east_m + p.x:.2f}", f"{origin.north_m + p.y:.2f}"])
                     n += 1
         return n
 
@@ -368,9 +357,7 @@ class MainWindow(QMainWindow):
         self.writer.send_mode(int(self.controls.mode()))
         self.writer.send_srp(self.controls.srp())
         self.writer.send_azimuth_offset(self.azimuth_offset())
-        p = self.position()
-        if p is not None:
-            self.writer.send_position(p)
+        self.writer.send_position(self.position())          # gespeichert, sonst Ursprung
         self.send_sync()
         self.sync_timer.start(self.SYNC_PERIOD_MS)
 
