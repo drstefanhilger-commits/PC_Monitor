@@ -29,12 +29,13 @@ python -m app.main
 ## Bedienung
 
 - **Verbindung:** Port wählen, Schalter **On** verbindet. Beim Verbinden werden gesendet:
-  - Signalquelle (Real/Simulation)
+  - Signalquelle (Real/Simulation mit Szenario)
   - Betriebsart
   - SRP-Referenz
   - Nordabgleich
   - Standort
   - Sync
+- **Signalquelle:** Real oder Simulation. Das Szenario des Simulators (Standard, DroneSweep, DroneStatic, SingleTone, WindNoise, Silence, FlyBy) wird gespeichert und bei Simulation gesendet (ICD Id 3 = 1 … 7). FlyBy: 5 s gerader Überflug, 5 s Pause mit Rauschen, wiederholt. Den Nordabgleich nicht mit DroneSweep oder FlyBy messen.
 - **Drehschalter Detect – Read – Calibrate:** wählt die Betriebsart des Boards und den angezeigten Tab.
 - **Board:** Unit-ID setzen, SRP-Referenzscan aus/ein.
 - **Sync:** sendet UTC und Lufttemperatur.

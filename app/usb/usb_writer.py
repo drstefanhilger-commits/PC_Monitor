@@ -4,6 +4,8 @@ import time
 import serial
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from app.model.SDSUSBModel import SIM_REAL, SIM_SCENARIOS
+
 
 class USBWriter(QThread):
     """
@@ -59,9 +61,10 @@ class USBWriter(QThread):
     def send_mode(self, mode_id: int):
         self.send_packet(2, self.model.build_mode_message(mode_id), f"Mode {mode_id}")
 
-    def send_simulation(self, on: bool):
-        self.send_packet(3, self.model.build_simulation_message(1 if on else 0),
-                         "Simulation" if on else "Real")
+    def send_simulation(self, value: int):
+        # 0 = Mikrofone, 1 … 7 = Simulator mit Szenario (SDSUSBModel.SIM_SCENARIOS)
+        name = "Real" if value == SIM_REAL else f"Simulation {dict(SIM_SCENARIOS).get(value, value)}"
+        self.send_packet(3, self.model.build_simulation_message(value), name)
 
     def send_unit_id(self, unit_id: int):
         self.send_packet(5, self.model.build_unit_id_message(unit_id), f"Unit-ID {unit_id}")

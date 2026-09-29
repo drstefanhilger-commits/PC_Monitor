@@ -20,8 +20,8 @@ class FakeWriter:
     def send_mode(self, mode_id):
         self.sent.append(("mode", mode_id))
 
-    def send_simulation(self, on):
-        self.sent.append(("sim", on))
+    def send_simulation(self, value):
+        self.sent.append(("sim", value))
 
     def send_srp(self, on):
         self.sent.append(("srp", on))
@@ -83,11 +83,43 @@ def test_simulation_switch(win):
     fw = FakeWriter()
     win.writer = fw
     assert win.controls.simulation() is True          # Firmware-Standard Simulation
+    assert win.controls.simulation_value() == 1       # Standardszenario der Firmware
     win.controls.sw_sim.click()
-    assert fw.sent[-1] == ("sim", False)
+    assert fw.sent[-1] == ("sim", 0)
+    assert not win.controls.sim_combo.isEnabled()
     win.controls.sw_sim.click()
-    assert fw.sent[-1] == ("sim", True)
+    assert fw.sent[-1] == ("sim", 1)
+    assert win.controls.sim_combo.isEnabled()
     win.writer = None
+
+
+def test_scenario_selection(win):
+    fw = FakeWriter()
+    win.writer = fw
+    c = win.controls
+    c.sim_combo.setCurrentIndex(c.sim_combo.findData(7))
+    assert fw.sent[-1] == ("sim", 7)                  # FlyBy sofort gesendet
+    assert int(win.settings.value("sim_scenario")) == 7
+    c.sw_sim.click()                                  # Real
+    assert fw.sent[-1] == ("sim", 0)
+    n = len(fw.sent)
+    c.sim_combo.setCurrentIndex(c.sim_combo.findData(3))
+    assert len(fw.sent) == n                          # bei Real nichts senden, nur merken
+    c.sw_sim.click()
+    assert fw.sent[-1] == ("sim", 3)
+    win.writer = None
+
+
+def test_scenario_restored_from_settings(app):
+    from PyQt6.QtCore import QSettings
+    s = QSettings("SDS_110", "PC_Monitor")
+    s.setValue("sim_scenario", 7)
+    w = MainWindow(settings=s)
+    w.timer.stop()
+    try:
+        assert w.controls.simulation_value() == 7
+    finally:
+        w.close()
 
 
 def test_power_without_port_logs_error(win):

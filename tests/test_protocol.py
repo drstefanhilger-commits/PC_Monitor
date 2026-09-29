@@ -4,7 +4,9 @@ Aufruf: python -m pytest tests/test_protocol.py
 """
 import zlib
 
-from app.model.SDSUSBModel import SDSMode, SDSUSBModel
+import pytest
+
+from app.model.SDSUSBModel import SDSMode, SDSUSBModel, SIM_SCENARIOS
 
 
 def test_mode_values_match_firmware():
@@ -25,6 +27,19 @@ def test_simulation_message():
     m = SDSUSBModel()
     assert m.build_simulation_message(1)[:12] == bytes.fromhex("DEADBEEF030000100000 0001".replace(" ", ""))
     assert m.build_simulation_message(0)[8:12] == bytes(4)
+
+
+def test_simulation_scenarios_match_firmware():
+    # Firmware Harness/SimScenario.hpp: 1 Standard, 2 + k Szenario k (DroneSweep … FlyBy)
+    assert SIM_SCENARIOS == ((1, "Standard (Firmware)"), (2, "DroneSweep"), (3, "DroneStatic"),
+                             (4, "SingleTone"), (5, "WindNoise"), (6, "Silence"), (7, "FlyBy"))
+    m = SDSUSBModel()
+    pkt = m.build_simulation_message(7)
+    assert pkt[:12] == bytes.fromhex("DEADBEEF03000010" "00000007")
+    assert pkt[12:] == (zlib.crc32(pkt[:12]) & 0xFFFFFFFF).to_bytes(4, "big")
+    for bad in (8, -1, 100):
+        with pytest.raises(ValueError):
+            m.build_simulation_message(bad)
 
 
 def test_sent_statistics_any_id():

@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGrou
                              QPushButton, QSizePolicy, QSpinBox, QVBoxLayout, QHBoxLayout, QWidget)
 
 from app import __version__
-from app.model.SDSUSBModel import SDSMode
+from app.model.SDSUSBModel import SDSMode, SIM_DEFAULT, SIM_REAL, SIM_SCENARIOS
 from app.widgets.mode_dial import ModeDial
 from app.widgets.toggle_switch import ToggleSwitch
 
@@ -15,7 +15,7 @@ class ControlPanel(QWidget):
     """
     Bedienfeld am linken Fensterrand (alle Schalter und Drehknöpfe):
       - USB-Port + On/Off (Verbindung öffnen/schließen)
-      - Simulation/Real (ICD Id 3)
+      - Simulation/Real und Simulator-Szenario (ICD Id 3)
       - Drehschalter Detect/Read/Calibrate (ICD Id 2, wählt auch den sichtbaren Tab)
       - Board: Unit-ID setzen (Id 5), SRP-Referenzscan aus/ein (Id 6)
       - Sync: UTC + Lufttemperatur (Id 7), automatisch jede Minute, bei Temperaturänderung sofort
@@ -24,7 +24,7 @@ class ControlPanel(QWidget):
     """
 
     power_toggled = pyqtSignal(bool)          # True = verbinden
-    simulation_toggled = pyqtSignal(bool)     # True = Simulation, False = Mikrofone
+    simulation_changed = pyqtSignal(int)      # Wert für Id 3: 0 = Mikrofone, 1 … 7 = Szenario
     mode_changed = pyqtSignal(object)         # SDSMode
     unit_id_set = pyqtSignal(int)
     srp_toggled = pyqtSignal(bool)
@@ -67,8 +67,19 @@ class ControlPanel(QWidget):
         vs = QVBoxLayout(box_src)
         self.sw_sim = ToggleSwitch("Real", "Simulation", on_color="#ef6c00")
         self.sw_sim.setChecked(True, emit=False)      # Firmware-Standard: Simulation (ICD Id 3)
-        self.sw_sim.toggled.connect(self.simulation_toggled)
+        self.sw_sim.toggled.connect(self._on_sim_toggled)
         vs.addWidget(self.sw_sim)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Szenario"))
+        self.sim_combo = QComboBox()
+        for value, name in SIM_SCENARIOS:
+            self.sim_combo.addItem(name, value)
+        self.sim_combo.setToolTip("Simulator der Firmware (Id 3 = 1 … 7). FlyBy: 5 s gerader Überflug,\n"
+                                  "5 s Pause mit Rauschen, wiederholt. Nordabgleich nicht mit\n"
+                                  "DroneSweep oder FlyBy messen (bewegte Quelle).")
+        self.sim_combo.currentIndexChanged.connect(self._on_scenario_changed)
+        row.addWidget(self.sim_combo, 1)
+        vs.addLayout(row)
         lay.addWidget(box_src)
 
         # --- Betriebsart --------------------------------------------------
@@ -163,7 +174,7 @@ class ControlPanel(QWidget):
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         lay.addWidget(line)
-        lay.addWidget(QLabel(f"PC-Monitor {__version__} · ICD 28.09.2026"))
+        lay.addWidget(QLabel(f"PC-Monitor {__version__} · ICD 29.09.2026"))
 
         self.refresh_ports()
 
@@ -182,6 +193,29 @@ class ControlPanel(QWidget):
 
     def simulation(self) -> bool:
         return self.sw_sim.isChecked()
+
+    def scenario(self) -> int:
+        """gewähltes Szenario (Id-3-Wert 1 … 7), auch wenn Real eingestellt ist"""
+        return int(self.sim_combo.currentData())
+
+    def simulation_value(self) -> int:
+        """Wert für Id 3: 0 = Mikrofone, sonst das gewählte Szenario"""
+        return self.scenario() if self.simulation() else SIM_REAL
+
+    def set_scenario(self, value: int):
+        """Szenario setzen ohne Signal (gespeicherter Wert beim Start); unbekannt -> Standard"""
+        i = self.sim_combo.findData(int(value))
+        self.sim_combo.blockSignals(True)
+        self.sim_combo.setCurrentIndex(i if i >= 0 else self.sim_combo.findData(SIM_DEFAULT))
+        self.sim_combo.blockSignals(False)
+
+    def _on_sim_toggled(self, on: bool):
+        self.sim_combo.setEnabled(on)
+        self.simulation_changed.emit(self.simulation_value())
+
+    def _on_scenario_changed(self, _index: int):
+        if self.simulation():             # bei Real nur merken, gesendet wird beim Umschalten
+            self.simulation_changed.emit(self.simulation_value())
 
     def mode(self) -> SDSMode:
         return self.mode_dial.mode()

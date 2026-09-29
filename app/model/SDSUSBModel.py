@@ -18,6 +18,21 @@ class SDSMode(IntEnum):
     READ = 3
 
 
+# Signalquelle, ICD Id 3 (SDS_110 Harness/SimScenario.hpp): 0 Mikrofone, 1 Simulator mit dem
+# Standardszenario der Firmware (SIM_SCENARIO_ID), 2 + k Simulator mit Szenario k
+SIM_REAL = 0
+SIM_DEFAULT = 1
+SIM_SCENARIOS = (
+    (1, "Standard (Firmware)"),
+    (2, "DroneSweep"),
+    (3, "DroneStatic"),
+    (4, "SingleTone"),
+    (5, "WindNoise"),
+    (6, "Silence"),
+    (7, "FlyBy"),
+)
+
+
 class SDSCommand(IntEnum):
     # Kommando-Ids PC -> SDS (SDS_110 doc/ICD_SDS_PC_Monitor.md)
     TIME_SYNC = 1
@@ -226,9 +241,11 @@ class SDSUSBModel:
         # Mode: 1=Detect, 2=Calibrate, 3=Read (SDSMode)
         return self._build_header_and_payload(SDSCommand.MODE, mode_id)
 
-    def build_simulation_message(self, sim_state: int) -> bytes:
-        # Simulation: 0=Real, 1=Simulated
-        return self._build_header_and_payload(SDSCommand.SIMULATION, sim_state)
+    def build_simulation_message(self, sim_value: int) -> bytes:
+        # Signalquelle: 0 = Mikrofone, 1 = Simulator (Standardszenario), 2 … 7 = Szenario (SIM_SCENARIOS)
+        if sim_value != SIM_REAL and sim_value not in dict(SIM_SCENARIOS):
+            raise ValueError(f"Signalquelle {sim_value} nicht in 0 … 7")
+        return self._build_header_and_payload(SDSCommand.SIMULATION, sim_value)
 
     def build_unit_id_message(self, unit_id: int) -> bytes:
         # Unit-ID: untere 16 Bit werden genutzt

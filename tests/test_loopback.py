@@ -50,10 +50,11 @@ def test_power_on_sends_state_and_receives_detect():
         w.controls.mode_dial.set_mode(SDSMode.READ, emit=False)
         w.settings.setValue("azimuth_offset_deg", -12.34)                     # gespeicherter Nordabgleich
         w.settings.setValue("position", "48.137154, 11.57549, 519.5")          # gespeicherter Standort
+        w.controls.sim_combo.setCurrentIndex(w.controls.sim_combo.findData(7))  # Szenario FlyBy
         w.controls.sw_power.click()
         assert w.controls.sw_power.isChecked()
         cmds = read_exact(master, 16 * 4 + 28 + 24)
-        assert cmds[:12] == bytes.fromhex("DEADBEEF03000010" "00000001")      # Simulation
+        assert cmds[:12] == bytes.fromhex("DEADBEEF03000010" "00000007")      # Simulation FlyBy
         assert cmds[16:28] == bytes.fromhex("DEADBEEF02000010" "00000003")    # READ = 3
         assert cmds[32:44] == bytes.fromhex("DEADBEEF06000010" "00000000")    # SRP aus
         off = cmds[48:64]                                                     # Nordabgleich −12,34°
