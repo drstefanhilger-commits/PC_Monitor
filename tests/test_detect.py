@@ -33,3 +33,39 @@ def test_point_east_and_range_follows_distance():
     t.update_frame(F.detect(azi=359.0, dist=20.0, conf=0.7))
     assert t.range_m == 500                         # Verlauf enthält noch 300 m
     assert len(t.trail_xy) == 2
+
+
+def _finite(curve):
+    import numpy as np
+    _x, y = curve.getData()
+    return 0 if y is None else int(np.isfinite(np.asarray(y, dtype=float)).sum())
+
+
+def test_gap_without_detect_clears_display():
+    """FlyBy-Pause: ohne Detect laufen Distanz, Azimut, Konfidenz mit Lücken weiter, alte Werte laufen hinaus."""
+    import numpy as np
+    from app.tabs.tab_detect import FRAME_S, GAP_S, HISTORY
+    app = QApplication.instance() or QApplication([])
+    t = TabDetect()
+    for k in range(3):
+        t.update_frame(F.detect(azi=10.0 * k, dist=80.0, conf=0.8), now=k * FRAME_S)
+    last = 2 * FRAME_S
+    t.tick(now=last + GAP_S * 0.9)                        # kurze Pause: nichts ändert sich
+    assert len(t.dist_history) == 3 and len(t.point.getData()[0]) == 1
+
+    t.tick(now=last + 1.0)                                # 1 s ohne Detect
+    n = int(1.0 / FRAME_S)
+    assert len(t.dist_history) == 3 + n and np.isnan(t.dist_history[-1]) and np.isnan(t.conf_history[-1])
+    assert _finite(t.dist_curve) == 3 and _finite(t.curve_conf) == 3 and _finite(t.az_curve) == 3
+    xs, _ = t.point.getData()
+    assert xs is None or len(xs) == 0                     # Punkt und Linie gelöscht
+    assert t.pos_label.text().startswith("Azimut –")
+
+    t.tick(now=last + 1.0 + HISTORY * FRAME_S)            # lange Pause: alte Werte vollständig hinaus
+    assert len(t.dist_history) == HISTORY
+    assert _finite(t.dist_curve) == 0 and _finite(t.az_curve) == 0 and _finite(t.curve_conf) == 0
+    assert all(p is None for p in t.trail_xy)
+
+    t.update_frame(F.detect(azi=90.0, dist=80.0, conf=0.9), now=last + 20.0)   # nächster Überflug
+    assert _finite(t.dist_curve) == 1 and "Azimut  90.0°" in t.pos_label.text()
+    assert len(t.dist_history) == HISTORY                 # Takt läuft weiter, kein Nachfüllen rückwirkend

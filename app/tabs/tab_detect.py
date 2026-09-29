@@ -6,6 +6,7 @@ Uhrzeigersinn, Mikrofon 0 zeigt nach Nord. Der Lageplan zeigt Nord oben und Ost 
 x = r · sin(φ) (Ost), y = r · cos(φ) (Nord).
 """
 import struct
+import time
 from collections import deque
 
 import numpy as np
@@ -18,6 +19,8 @@ RANGES_M = (25, 50, 100, 200, 500, 1000, 2000, 5000)     # Anzeigeradien (automa
 TRAIL = 60                                               # zuletzt angezeigte Positionen
 TRACK_SHOWN = 50                                         # angezeigte Punkte der Spur (Export: alle)
 HISTORY = 200
+FRAME_S = 0.032                                          # Takt der Detect-Frames (höchstens 31,25/s)
+GAP_S = 0.25                                             # ohne Detect länger als das: Lücke (keine Daten)
 LINE_PEN_DETECT = pg.mkPen('r', width=2)                 # Linie zur Detektion (keine bestätigte Spur)
 LINE_PEN_TRACK = pg.mkPen((0, 220, 120), width=2)        # Linie zum Kopf der bestätigten Spur (grün)
 
@@ -79,13 +82,15 @@ class TabDetect(QWidget):
         right.addWidget(self.track_label)
         self.dist_plot = pg.PlotWidget()
         self.dist_plot.showGrid(x=True, y=True)
-        self.dist_curve = self.dist_plot.plot(pen='r')
+        self.dist_curve = self.dist_plot.plot(pen='r', connect='finite')
         self.dist_history = deque(maxlen=HISTORY)
         p = self.dist_plot.getPlotItem()
-        p.setLabel('bottom', 'Report')
+        p.setLabel('bottom', 'Frame (32 ms)')
         p.setLabel('left', 'Distanz', units='m')
         p.setTitle('Distanz (Pegelmodell)')
         p.enableAutoRange(axis='y')
+        self.dist_plot.setXRange(0, HISTORY, padding=0)        # feste Zeitachse: Lücken bleiben sichtbar
+        self.dist_plot.getPlotItem().disableAutoRange(axis='x')
         right.addWidget(self.dist_plot)
 
         self.az_plot = pg.PlotWidget()
@@ -94,19 +99,23 @@ class TabDetect(QWidget):
         self.az_curve = self.az_plot.plot(pen=None, symbol='o', symbolSize=3, symbolBrush='c')
         self.az_history = deque(maxlen=HISTORY)
         p = self.az_plot.getPlotItem()
-        p.setLabel('bottom', 'Report')
+        p.setLabel('bottom', 'Frame (32 ms)')
         p.setLabel('left', 'Azimut', units='°')
         p.setTitle('Azimut')
+        self.az_plot.setXRange(0, HISTORY, padding=0)        # feste Zeitachse: Lücken bleiben sichtbar
+        self.az_plot.getPlotItem().disableAutoRange(axis='x')
         right.addWidget(self.az_plot)
 
         self.plot_conf = pg.PlotWidget()
         self.plot_conf.setYRange(0, 1)
-        self.curve_conf = self.plot_conf.plot(pen='y')
+        self.curve_conf = self.plot_conf.plot(pen='y', connect='finite')
         self.conf_history = deque(maxlen=HISTORY)
         p = self.plot_conf.getPlotItem()
-        p.setLabel('bottom', 'Report')
+        p.setLabel('bottom', 'Frame (32 ms)')
         p.setLabel('left', 'Konfidenz')
         p.setTitle('Konfidenz')
+        self.plot_conf.setXRange(0, HISTORY, padding=0)        # feste Zeitachse: Lücken bleiben sichtbar
+        self.plot_conf.getPlotItem().disableAutoRange(axis='x')
         right.addWidget(self.plot_conf)
         top.addLayout(right, 2)
         layout.addLayout(top, 3)
@@ -125,6 +134,10 @@ class TabDetect(QWidget):
         self.plot_state.addItem(self.state_bars)
         layout.addWidget(self.plot_state, 1)
         self.last_unit_report = None
+        # Lücken: ohne Detect (z. B. FlyBy-Pause) laufen die Verläufe im Frame-Takt mit NaN weiter
+        self._last_detect = None                 # time.monotonic() des letzten Detect
+        self._fill_t = None                      # bis hierhin sind die Verläufe gefüllt
+        self._gap = False
 
     # ------------------------------------------------------------
     def _set_range(self, r: float):
@@ -159,25 +172,60 @@ class TabDetect(QWidget):
         self.polar.setXRange(-m, m, padding=0)
         self.polar.setYRange(-m, m, padding=0)
 
-    def update_frame(self, frame: bytes):
+    def update_frame(self, frame: bytes, now: float = None):
+        now = time.monotonic() if now is None else now
         _ts, _unit = struct.unpack_from("<II", frame, 8)
         azi, dist, conf = struct.unpack_from("<fff", frame, 16)
         x, y = compass_xy(azi, dist)
+        self._last_detect = self._fill_t = now
+        self._gap = False
         self.trail_xy.append((x, y))
         self.dist_history.append(dist)
         self.az_history.append(azi % 360.0)
         self.conf_history.append(conf)
 
-        self._set_range(choose_range(self.dist_history))
         self.point.setData([x], [y])
         self._detect_xy = (x, y)
         self._update_line()
-        tx, ty = zip(*self.trail_xy)
-        self.trail.setData(list(tx), list(ty))
-        self.dist_curve.setData(list(self.dist_history))
-        self.az_curve.setData(list(self.az_history))
-        self.curve_conf.setData(list(self.conf_history))
+        self._redraw_history()
         self.pos_label.setText(f"Azimut {azi % 360.0:5.1f}°   Distanz {dist:6.1f} m   Konfidenz {conf:.2f}")
+
+    def tick(self, now: float = None):
+        """
+        Ohne Detect länger als GAP_S (keine Detektion, z. B. Pause des FlyBy): Azimut, Distanz und
+        Konfidenz ohne Wert (NaN, nicht gezeichnet) im Frame-Takt anhängen, damit die alten Werte
+        aus den Verläufen laufen; Punkt, Linie und Anzeige löschen. Aufruf mit jedem Poll.
+        """
+        if self._last_detect is None:
+            return
+        now = time.monotonic() if now is None else now
+        if now - self._last_detect <= GAP_S:
+            return
+        n = int((now - self._fill_t) / FRAME_S)
+        if n > 0:
+            self._fill_t += n * FRAME_S
+            for _ in range(min(n, HISTORY)):
+                self.dist_history.append(np.nan)
+                self.az_history.append(np.nan)
+                self.conf_history.append(np.nan)
+                self.trail_xy.append(None)
+            self._redraw_history()
+        if not self._gap:
+            self._gap = True
+            self.point.setData([], [])
+            self._detect_xy = None
+            self._update_line()
+            self.pos_label.setText("Azimut –   Distanz –   Konfidenz –")
+
+    def _redraw_history(self):
+        self._set_range(choose_range(self.dist_history))
+        pts = [p for p in self.trail_xy if p is not None]
+        self.trail.setData([p[0] for p in pts], [p[1] for p in pts])
+        self.dist_curve.setData(np.array(self.dist_history, dtype=float))
+        az = np.array(self.az_history, dtype=float)
+        ok = np.isfinite(az)                     # Azimut als Punkte: NaN nicht zeichnen
+        self.az_curve.setData(np.arange(len(az))[ok], az[ok])
+        self.curve_conf.setData(np.array(self.conf_history, dtype=float))
 
     def _update_line(self):
         """Linie vom Standort zum Kopf der grünen Spur; ohne bestätigte Spur zur Detektion (rot)."""

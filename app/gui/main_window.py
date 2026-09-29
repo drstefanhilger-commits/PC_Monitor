@@ -400,6 +400,7 @@ class MainWindow(QMainWindow):
         """
         deadline = time.monotonic() + self.POLL_BUDGET_S
         self._process_queues(deadline)
+        self.detect_tab.tick()                  # ohne Detect: Verläufe mit Lücken weiterführen
         self.check_track_timeout()
         self._poll_count += 1
         if self._poll_count % self.STATS_EVERY == 0:
